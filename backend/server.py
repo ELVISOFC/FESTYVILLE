@@ -528,6 +528,25 @@ async def simulate(player_id: str):
         },
     }
 
+@api_router.post("/state/{player_id}/reset")
+async def reset_player(player_id: str):
+    """Wipe progress but keep the same player_id (and name + saved leaderboard)."""
+    fresh = PlayerState(player_id=player_id).model_dump()
+    # Keep existing name if any
+    existing = await db.players.find_one({"player_id": player_id}, {"_id": 0, "name": 1})
+    if existing and existing.get("name"):
+        fresh["name"] = existing["name"]
+    await db.players.update_one(
+        {"player_id": player_id}, {"$set": fresh}, upsert=True
+    )
+    fresh["server_time"] = now_ts()
+    return fresh
+
+@api_router.post("/state/{player_id}/delete")
+async def delete_player(player_id: str):
+    await db.players.delete_one({"player_id": player_id})
+    return {"ok": True, "player_id": player_id}
+
 @api_router.post("/state/{player_id}/rename")
 async def rename(player_id: str, body: Dict[str, str]):
     name = (body.get("name") or "").strip()[:20]

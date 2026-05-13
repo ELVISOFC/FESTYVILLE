@@ -14,6 +14,7 @@ type Props = {
   genre: string | null;
   onOpenLeaderboard: () => void;
   onOpenPlanning: () => void;
+  onOpenMenu: () => void;
 };
 
 const GENRE_TINT: Record<string, string> = {
@@ -21,11 +22,14 @@ const GENRE_TINT: Record<string, string> = {
 };
 
 export default function HUD(props: Props) {
-  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, onOpenLeaderboard, onOpenPlanning } = props;
+  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, onOpenLeaderboard, onOpenPlanning, onOpenMenu } = props;
   const dayColor = day >= 7 ? COLORS.primary : day === 1 ? COLORS.warning : COLORS.accent;
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
+        <TouchableOpacity onPress={onOpenMenu} style={[styles.pill, styles.iconBtn]} testID="hud-open-menu">
+          <Ionicons name="menu" size={18} color={COLORS.textPrimary} />
+        </TouchableOpacity>
         <Pill icon="cash" color={COLORS.accent} label={formatNum(coins)} testID="hud-coin-balance" />
         <Pill icon="flash" color={COLORS.secondary} label={`${xp} XP`} testID="hud-xp-balance" />
         <Pill icon="trophy" color={COLORS.primary} label={`Lv ${level} · P${phase}`} testID="hud-level-phase" />

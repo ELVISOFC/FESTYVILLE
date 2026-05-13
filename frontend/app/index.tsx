@@ -225,6 +225,7 @@ export default function Index() {
           genre={state.genre}
           onOpenLeaderboard={() => router.push("/leaderboard")}
           onOpenPlanning={() => router.push("/planning")}
+          onOpenMenu={() => router.push("/menu")}
         />
         {state.day >= 7 ? (
           <Text style={[styles.lastResult, { color: COLORS.primary }]} testID="festival-day-banner">

@@ -55,6 +55,24 @@ export const api = {
     const pid = await getPlayerId();
     return req(`/state/${pid}/rename`, { method: "POST", body: JSON.stringify({ name }) });
   },
+  resetSave: async () => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/reset`, { method: "POST" });
+  },
+  deleteSave: async () => {
+    const pid = await getPlayerId();
+    const res = await req(`/state/${pid}/delete`, { method: "POST" });
+    await AsyncStorage.removeItem("festyville.player_id");
+    await AsyncStorage.removeItem("festyville.tutorial.planning_seen");
+    return res;
+  },
+  newSave: async () => {
+    // Generate a new player_id and store it locally
+    const pid = "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    await AsyncStorage.setItem("festyville.player_id", pid);
+    await AsyncStorage.removeItem("festyville.tutorial.planning_seen");
+    return req(`/state/${pid}`);
+  },
   setGenre: async (genre: string) => {
     const pid = await getPlayerId();
     return req(`/state/${pid}/set_genre`, { method: "POST", body: JSON.stringify({ genre }) });

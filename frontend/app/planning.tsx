@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { api, type Artist, type Genre, type PlayerState } from "../src/api";
 import { COLORS } from "../src/theme";
+import TutorialModal from "../src/components/TutorialModal";
 
 const GENRE_COLORS: Record<string, string> = {
   edm:    "#00FFFF",
@@ -229,6 +230,8 @@ export default function Planning() {
           </TouchableOpacity>
         )}
       </View>
+
+      <TutorialModal />
     </View>
   );
 }

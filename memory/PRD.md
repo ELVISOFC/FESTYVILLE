@@ -47,6 +47,9 @@ A music festival tycoon mobile prototype inspired by RollerCoaster Tycoon, SimCi
 - `players`: `{ player_id, name, coins, xp, level, phase, buildings:[{id, catalog_id, x, y, placed_at, ready_at, status}], last_grade, last_score, festivals_run }`
 - `leaderboard`: `{ player_id, name, score, grade, timestamp }`
 
+## Iteration 3 Additions
+- **Live simulation animation overlay**: tapping Run Festival now opens a full-screen `SimulationOverlay` with a "GATES OPEN" title fade, ~48 crowd dots streaming from the grid edges (70% gravitating to ready stages), pulsing spotlight beams above each stage, a "SIMULATING CROWD FLOW…" footer, and a brief white flash before transitioning into the existing results modal. Runs ~5.5s. The API call is fired in parallel so latency feels zero.
+
 ## Not yet implemented (deferred per scope)
 - Live simulation animation (crowd movement, performer spotlight) — currently jumps straight to results.
 - Multi-player rooms / asynchronous PvP.

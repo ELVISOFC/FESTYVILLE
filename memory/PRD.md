@@ -47,6 +47,11 @@ A music festival tycoon mobile prototype inspired by RollerCoaster Tycoon, SimCi
 - `players`: `{ player_id, name, coins, xp, level, phase, buildings:[{id, catalog_id, x, y, placed_at, ready_at, status}], last_grade, last_score, festivals_run }`
 - `leaderboard`: `{ player_id, name, score, grade, timestamp }`
 
+## Iteration 4 Additions
+- **Main menu / pause screen** (`/menu`, modal): reached via a new hamburger pill at the start of the HUD. Shows a save summary card (name, ID, coins/XP/level·phase, cycle·day, genre, building count, last grade) plus action buttons: **Resume**, **New Save** (fresh player_id in storage), **Reset This Save** (wipes progress, keeps player_id + name), **Delete Save** (purges DB + clears local), and **Replay Planning Tutorial**.
+- **First-startup planning tutorial**: 4-step animated `TutorialModal` (calendar → genre → lineup → daily news) gated by `AsyncStorage` flag `festyville.tutorial.planning_seen`. Replayable from the menu.
+- New backend endpoints `/state/{pid}/reset` and `/state/{pid}/delete` (4/4 pytest passing in `/app/backend/tests/test_festyville_v4_menu.py`).
+
 ## Iteration 3 Additions
 - **Live simulation animation overlay**: tapping Run Festival now opens a full-screen `SimulationOverlay` with a "GATES OPEN" title fade, ~48 crowd dots streaming from the grid edges (70% gravitating to ready stages), pulsing spotlight beams above each stage, a "SIMULATING CROWD FLOW…" footer, and a brief white flash before transitioning into the existing results modal. Runs ~5.5s. The API call is fired in parallel so latency feels zero.
 

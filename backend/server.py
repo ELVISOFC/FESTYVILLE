@@ -56,6 +56,44 @@ CATALOG: List[Dict[str, Any]] = [
 CATALOG_BY_ID = {item["id"]: item for item in CATALOG}
 
 GRID_SIZE = 8  # 8x8 isometric grid
+DAYS_PER_CYCLE = 7
+
+GENRES = [
+    {"id": "edm",     "label": "EDM Blowout"},
+    {"id": "indie",   "label": "Indie / Folk"},
+    {"id": "hiphop",  "label": "Hip-Hop Block"},
+    {"id": "rock",    "label": "Rock Revival"},
+    {"id": "mixed",   "label": "Mixed Genre"},
+]
+
+ARTISTS: List[Dict[str, Any]] = [
+    # EDM
+    {"id": "glow_riot",   "name": "Glow Riot",    "genre": "edm",    "tier": 1, "fee": 150,  "boost": 8,  "phase": 1},
+    {"id": "pulse_drop",  "name": "Pulse Drop",   "genre": "edm",    "tier": 2, "fee": 450,  "boost": 18, "phase": 2},
+    {"id": "neon_wolves", "name": "Neon Wolves",  "genre": "edm",    "tier": 3, "fee": 1200, "boost": 38, "phase": 5},
+    # Indie/Folk
+    {"id": "velvet_echo", "name": "Velvet Echo",  "genre": "indie",  "tier": 1, "fee": 150,  "boost": 8,  "phase": 1},
+    {"id": "paper_lant",  "name": "Paper Lanterns","genre": "indie", "tier": 2, "fee": 450,  "boost": 18, "phase": 2},
+    {"id": "static_blm",  "name": "Static Bloom", "genre": "indie",  "tier": 3, "fee": 1200, "boost": 38, "phase": 5},
+    # Hip-Hop
+    {"id": "blk_captain", "name": "Block Captain","genre": "hiphop", "tier": 1, "fee": 150,  "boost": 8,  "phase": 1},
+    {"id": "verse_808",   "name": "Verse 808",    "genre": "hiphop", "tier": 2, "fee": 450,  "boost": 18, "phase": 2},
+    {"id": "throne_heir", "name": "Throne Heir",  "genre": "hiphop", "tier": 3, "fee": 1200, "boost": 38, "phase": 5},
+    # Rock
+    {"id": "river_holw",  "name": "River Hollow", "genre": "rock",   "tier": 1, "fee": 150,  "boost": 8,  "phase": 1},
+    {"id": "ember_trail", "name": "Ember Trail",  "genre": "rock",   "tier": 2, "fee": 450,  "boost": 18, "phase": 2},
+    {"id": "iron_choir",  "name": "Iron Choir",   "genre": "rock",   "tier": 3, "fee": 1200, "boost": 38, "phase": 5},
+]
+ARTISTS_BY_ID = {a["id"]: a for a in ARTISTS}
+
+MICRO_EVENTS = [
+    {"text": "Local press buzz lifts hype",  "coins": 80,  "xp": 10},
+    {"text": "Influencer scouting tour visits", "coins": 60,  "xp": 15},
+    {"text": "Crew finds discount lumber",    "coins": 120, "xp": 5},
+    {"text": "Radio interview lands a sponsor", "coins": 150, "xp": 12},
+    {"text": "Weather is looking perfect",    "coins": 40,  "xp": 20},
+    {"text": "Ticket pre-sales spike",        "coins": 200, "xp": 8},
+]
 
 # ---------- Models ----------
 class Building(BaseModel):
@@ -79,6 +117,11 @@ class PlayerState(BaseModel):
     last_grade: Optional[str] = None
     last_score: int = 0
     festivals_run: int = 0
+    cycle: int = 1
+    day: int = 1
+    genre: Optional[str] = None
+    lineup: List[str] = []
+    day_log: List[Dict[str, Any]] = []
     created_at: float = Field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
 
 class PlaceRequest(BaseModel):
@@ -129,6 +172,12 @@ async def get_or_create_state(player_id: str) -> Dict[str, Any]:
         s = PlayerState(player_id=player_id)
         await db.players.insert_one(s.model_dump())
         doc = s.model_dump()
+    # Backfill new fields for legacy players
+    defaults = {"cycle": 1, "day": 1, "genre": None, "lineup": [], "day_log": []}
+    missing = {k: v for k, v in defaults.items() if k not in doc}
+    if missing:
+        doc.update(missing)
+        await db.players.update_one({"player_id": player_id}, {"$set": missing})
     doc = refresh_buildings(doc)
     await db.players.update_one({"player_id": player_id}, {"$set": {"buildings": doc["buildings"]}})
     return doc
@@ -140,7 +189,120 @@ async def root():
 
 @api_router.get("/catalog")
 async def get_catalog():
-    return {"catalog": CATALOG, "grid_size": GRID_SIZE}
+    return {"catalog": CATALOG, "grid_size": GRID_SIZE, "days_per_cycle": DAYS_PER_CYCLE}
+
+@api_router.get("/artists")
+async def get_artists():
+    return {"artists": ARTISTS, "genres": GENRES}
+
+@api_router.post("/state/{player_id}/set_genre")
+async def set_genre(player_id: str, body: Dict[str, str]):
+    state = await get_or_create_state(player_id)
+    genre = (body.get("genre") or "").strip()
+    if genre and genre not in {g["id"] for g in GENRES}:
+        raise HTTPException(400, "Unknown genre")
+    state["genre"] = genre or None
+    # If switching to a non-mixed genre, drop incompatible artists
+    if genre and genre != "mixed":
+        state["lineup"] = [aid for aid in state["lineup"] if ARTISTS_BY_ID.get(aid, {}).get("genre") == genre]
+    await db.players.update_one(
+        {"player_id": player_id},
+        {"$set": {"genre": state["genre"], "lineup": state["lineup"]}}
+    )
+    state["server_time"] = now_ts()
+    return state
+
+@api_router.post("/state/{player_id}/book_artist")
+async def book_artist(player_id: str, body: Dict[str, str]):
+    state = await get_or_create_state(player_id)
+    aid = body.get("artist_id", "")
+    artist = ARTISTS_BY_ID.get(aid)
+    if not artist:
+        raise HTTPException(404, "Unknown artist")
+    if artist["phase"] > state["phase"]:
+        raise HTTPException(400, f"Locked. Reach phase {artist['phase']}.")
+    if state["genre"] and state["genre"] != "mixed" and artist["genre"] != state["genre"]:
+        raise HTTPException(400, f"Artist genre doesn't match festival genre")
+    if aid in state["lineup"]:
+        raise HTTPException(400, "Already booked")
+    if state["coins"] < artist["fee"]:
+        raise HTTPException(400, "Not enough coins to pay fee")
+    state["coins"] -= artist["fee"]
+    state["lineup"].append(aid)
+    await db.players.update_one(
+        {"player_id": player_id},
+        {"$set": {"coins": state["coins"], "lineup": state["lineup"]}}
+    )
+    state["server_time"] = now_ts()
+    return state
+
+@api_router.post("/state/{player_id}/unbook_artist")
+async def unbook_artist(player_id: str, body: Dict[str, str]):
+    state = await get_or_create_state(player_id)
+    aid = body.get("artist_id", "")
+    if aid not in state["lineup"]:
+        raise HTTPException(404, "Not in lineup")
+    state["lineup"].remove(aid)
+    # 50% refund
+    artist = ARTISTS_BY_ID.get(aid)
+    if artist:
+        state["coins"] += artist["fee"] // 2
+    await db.players.update_one(
+        {"player_id": player_id},
+        {"$set": {"coins": state["coins"], "lineup": state["lineup"]}}
+    )
+    state["server_time"] = now_ts()
+    return state
+
+@api_router.post("/state/{player_id}/advance_day")
+async def advance_day(player_id: str):
+    state = await get_or_create_state(player_id)
+    if state["day"] >= DAYS_PER_CYCLE:
+        raise HTTPException(400, f"Already on festival day. Run the festival!")
+    if state["day"] == 1 and not state["genre"]:
+        raise HTTPException(400, "Pick a genre before ending Day 1")
+    # Pull a random micro-progression event
+    import random
+    ev = random.choice(MICRO_EVENTS)
+    state["day"] += 1
+    state["coins"] += ev["coins"]
+    state["xp"] += ev["xp"]
+    # Level-up loop
+    while state["xp"] >= xp_for_level(state["level"]):
+        state["level"] += 1
+    state["phase"] = compute_phase(state["level"])
+    log_entry = {"day": state["day"], "text": ev["text"], "coins": ev["coins"], "xp": ev["xp"]}
+    state["day_log"].append(log_entry)
+    # Trim log to last 20
+    state["day_log"] = state["day_log"][-20:]
+    await db.players.update_one(
+        {"player_id": player_id},
+        {"$set": {
+            "day": state["day"], "coins": state["coins"], "xp": state["xp"],
+            "level": state["level"], "phase": state["phase"], "day_log": state["day_log"],
+        }}
+    )
+    state["server_time"] = now_ts()
+    state["last_event"] = log_entry
+    return state
+
+@api_router.post("/state/{player_id}/start_cycle")
+async def start_cycle(player_id: str):
+    state = await get_or_create_state(player_id)
+    state["cycle"] = state.get("cycle", 1) + 1
+    state["day"] = 1
+    state["genre"] = None
+    state["lineup"] = []
+    state["day_log"] = []
+    await db.players.update_one(
+        {"player_id": player_id},
+        {"$set": {
+            "cycle": state["cycle"], "day": 1, "genre": None,
+            "lineup": [], "day_log": [],
+        }}
+    )
+    state["server_time"] = now_ts()
+    return state
 
 @api_router.get("/state/{player_id}")
 async def get_state(player_id: str):
@@ -274,6 +436,25 @@ async def simulate(player_id: str):
     decor_raw = sum(CATALOG_BY_ID[b["catalog_id"]]["score"] for b in decors)
     aesthetic = min(100, decor_raw * 6)
 
+    # Lineup bonus: artist boosts add to stage_score; genre match adds composite bonus.
+    lineup = state.get("lineup", [])
+    festival_genre = state.get("genre")
+    lineup_boost = 0
+    matched = 0
+    for aid in lineup:
+        art = ARTISTS_BY_ID.get(aid)
+        if not art:
+            continue
+        lineup_boost += art["boost"]
+        if festival_genre and (festival_genre == "mixed" or art["genre"] == festival_genre):
+            matched += 1
+    stage_score = min(100, stage_score + lineup_boost)
+    genre_bonus = 0
+    if lineup and festival_genre and matched == len(lineup) and festival_genre != "mixed":
+        genre_bonus = 10  # Pure-genre festival bonus
+    elif festival_genre == "mixed" and len(set(ARTISTS_BY_ID[a]["genre"] for a in lineup if a in ARTISTS_BY_ID)) >= 3:
+        genre_bonus = 8   # Mixed festival with 3+ genres
+
     weights = {"stage": 0.30, "crowd_flow": 0.20, "vendor": 0.20, "utility": 0.15, "aesthetic": 0.15}
     composite = (
         stage_score * weights["stage"]
@@ -282,7 +463,7 @@ async def simulate(player_id: str):
         + utility_coverage * weights["utility"]
         + aesthetic * weights["aesthetic"]
     )
-    composite = max(0, int(composite - penalty))
+    composite = max(0, int(composite - penalty + genre_bonus))
     grade = grade_from_score(composite)
 
     # Rewards
@@ -293,6 +474,12 @@ async def simulate(player_id: str):
     state["festivals_run"] = state.get("festivals_run", 0) + 1
     state["last_grade"] = grade
     state["last_score"] = composite
+    # Auto-start next cycle: reset day/genre/lineup but keep buildings & coins/xp.
+    state["cycle"] = state.get("cycle", 1) + 1
+    state["day"] = 1
+    state["genre"] = None
+    state["lineup"] = []
+    state["day_log"] = []
 
     # Level up
     while state["xp"] >= xp_for_level(state["level"]):
@@ -305,6 +492,8 @@ async def simulate(player_id: str):
             "coins": state["coins"], "xp": state["xp"], "level": state["level"],
             "phase": state["phase"], "festivals_run": state["festivals_run"],
             "last_grade": grade, "last_score": composite,
+            "cycle": state["cycle"], "day": state["day"], "genre": None,
+            "lineup": [], "day_log": [],
         }}
     )
 
@@ -328,11 +517,14 @@ async def simulate(player_id: str):
             "aesthetic": int(aesthetic),
         },
         "penalty": penalty,
+        "genre_bonus": genre_bonus,
+        "lineup_boost": lineup_boost,
         "rewards": {"coins": coin_reward, "xp": xp_reward},
         "state": {
             "coins": state["coins"], "xp": state["xp"],
             "level": state["level"], "phase": state["phase"],
             "festivals_run": state["festivals_run"],
+            "cycle": state["cycle"], "day": state["day"],
         },
     }
 

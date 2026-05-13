@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { api, type CatalogItem, type PlayerState, type SimResult } from "../src/api";
 import { COLORS, CATEGORY_COLORS } from "../src/theme";
+import { ensurePermission, scheduleBuildComplete, cancelScheduled } from "../src/notifications";
 import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
 import IsometricGrid, { TILE_W, TILE_H, gridToScreen } from "../src/components/IsometricGrid";
@@ -111,18 +112,6 @@ export default function Index() {
     [occupied, state]
   );
 
-  const doSpeedup = async (id: string) => {
-    setBusy(true);
-    try {
-      const s = await api.speedup(id);
-      setState(s as PlayerState);
-    } catch (e: any) {
-      alertOrLog("Cannot speed up", e.message || String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handlePick = async (item: CatalogItem) => {
     if (!selectedTile) {
       setDrawerOpen(false);
@@ -132,10 +121,38 @@ export default function Index() {
     try {
       const s = await api.place(item.id, selectedTile.x, selectedTile.y);
       setState(s as PlayerState);
+      // Schedule a local push notification for when this build completes.
+      const placed = (s as PlayerState).buildings.find(
+        (b) => b.x === selectedTile.x && b.y === selectedTile.y
+      );
+      if (placed) {
+        const granted = await ensurePermission();
+        if (granted) {
+          scheduleBuildComplete(
+            placed.id,
+            "Build complete!",
+            `Your ${item.name} is ready to rock 🎤`,
+            placed.ready_at
+          ).catch(() => {});
+        }
+      }
       setSelectedTile(null);
       setDrawerOpen(false);
     } catch (e: any) {
       alertOrLog("Cannot place", e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doSpeedup = async (id: string) => {
+    setBusy(true);
+    try {
+      const s = await api.speedup(id);
+      setState(s as PlayerState);
+      cancelScheduled(id).catch(() => {});
+    } catch (e: any) {
+      alertOrLog("Cannot speed up", e.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -181,15 +198,27 @@ export default function Index() {
           level={state.level}
           phase={state.phase}
           activeBuilds={activeBuilds}
+          day={state.day}
+          cycle={state.cycle}
+          genre={state.genre}
           onOpenLeaderboard={() => router.push("/leaderboard")}
+          onOpenPlanning={() => router.push("/planning")}
         />
-        {state.last_grade ? (
+        {state.day >= 7 ? (
+          <Text style={[styles.lastResult, { color: COLORS.primary }]} testID="festival-day-banner">
+            🎪 FESTIVAL DAY — Run Festival now to score!
+          </Text>
+        ) : !state.genre ? (
+          <Text style={[styles.lastResult, { color: COLORS.warning }]} testID="planning-banner">
+            Day {state.day}/7 · Open planning to pick your genre & lineup →
+          </Text>
+        ) : state.last_grade ? (
           <Text style={styles.lastResult} testID="last-grade-banner">
             Last festival: <Text style={{ color: COLORS.accent }}>{state.last_grade}</Text> ·{" "}
-            {state.last_score}/100
+            {state.last_score}/100 · Day {state.day}/7
           </Text>
         ) : (
-          <Text style={styles.lastResult}>Tap a tile to build · Run Festival when ready</Text>
+          <Text style={styles.lastResult}>Day {state.day}/7 · {state.lineup.length} artist(s) booked · Build & wait</Text>
         )}
       </View>
 

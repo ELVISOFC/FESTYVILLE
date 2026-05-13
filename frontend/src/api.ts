@@ -30,6 +30,7 @@ async function req(path: string, opts: RequestInit = {}) {
 export const api = {
   getPlayerId,
   catalog: () => req("/catalog"),
+  artists: () => req("/artists"),
   state: async () => {
     const pid = await getPlayerId();
     return req(`/state/${pid}`);
@@ -53,6 +54,26 @@ export const api = {
   rename: async (name: string) => {
     const pid = await getPlayerId();
     return req(`/state/${pid}/rename`, { method: "POST", body: JSON.stringify({ name }) });
+  },
+  setGenre: async (genre: string) => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/set_genre`, { method: "POST", body: JSON.stringify({ genre }) });
+  },
+  bookArtist: async (artist_id: string) => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/book_artist`, { method: "POST", body: JSON.stringify({ artist_id }) });
+  },
+  unbookArtist: async (artist_id: string) => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/unbook_artist`, { method: "POST", body: JSON.stringify({ artist_id }) });
+  },
+  advanceDay: async () => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/advance_day`, { method: "POST" });
+  },
+  startCycle: async () => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/start_cycle`, { method: "POST" });
   },
   leaderboard: () => req("/leaderboard"),
 };
@@ -92,8 +113,26 @@ export type PlayerState = {
   last_grade: string | null;
   last_score: number;
   festivals_run: number;
+  cycle: number;
+  day: number;
+  genre: string | null;
+  lineup: string[];
+  day_log: { day: number; text: string; coins: number; xp: number }[];
   server_time: number;
+  last_event?: { day: number; text: string; coins: number; xp: number };
 };
+
+export type Artist = {
+  id: string;
+  name: string;
+  genre: string;
+  tier: number;
+  fee: number;
+  boost: number;
+  phase: number;
+};
+
+export type Genre = { id: string; label: string };
 
 export type SimResult = {
   grade: string;
@@ -106,6 +145,8 @@ export type SimResult = {
     aesthetic: number;
   };
   penalty: number;
+  genre_bonus: number;
+  lineup_boost: number;
   rewards: { coins: number; xp: number };
-  state: { coins: number; xp: number; level: number; phase: number; festivals_run: number };
+  state: { coins: number; xp: number; level: number; phase: number; festivals_run: number; cycle: number; day: number };
 };

@@ -21,6 +21,7 @@ import IsometricGrid, { TILE_W, TILE_H, gridToScreen } from "../src/components/I
 import BuildingSprite from "../src/components/BuildingSprite";
 import ConstructionTimer from "../src/components/ConstructionTimer";
 import SimulationModal from "../src/components/SimulationModal";
+import SimulationOverlay from "../src/components/SimulationOverlay";
 
 function alertOrLog(title: string, msg: string) {
   if (Platform.OS === "web") {
@@ -41,6 +42,8 @@ export default function Index() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [simResult, setSimResult] = useState<SimResult | null>(null);
   const [simOpen, setSimOpen] = useState(false);
+  const [simAnimating, setSimAnimating] = useState(false);
+  const pendingResultRef = useRef<SimResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0); // 1Hz refresh for timer→ready transitions
@@ -159,16 +162,35 @@ export default function Index() {
   };
 
   const handleRunFestival = async () => {
+    if (!state) return;
+    const readyCount = state.buildings.filter((b) => b.status === "ready").length;
+    if (readyCount === 0) {
+      alertOrLog("Festival Cancelled", "Place and finish at least one building first.");
+      return;
+    }
+    // Start animation immediately, fire the API in parallel.
     setBusy(true);
+    setSimAnimating(true);
+    pendingResultRef.current = null;
     try {
       const r = await api.simulate();
-      setSimResult(r as SimResult);
-      setSimOpen(true);
-      await refreshState();
+      pendingResultRef.current = r as SimResult;
+      // Refresh state in the background so the next cycle data is fresh.
+      refreshState().catch(() => {});
     } catch (e: any) {
+      setSimAnimating(false);
       alertOrLog("Festival Cancelled", e.message || String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleAnimationComplete = () => {
+    setSimAnimating(false);
+    const r = pendingResultRef.current;
+    if (r) {
+      setSimResult(r);
+      setSimOpen(true);
     }
   };
 
@@ -316,6 +338,13 @@ export default function Index() {
         phase={state.phase}
         coins={state.coins}
         onPick={handlePick}
+      />
+      <SimulationOverlay
+        visible={simAnimating}
+        gridSize={gridSize}
+        buildings={state.buildings}
+        catalog={catalog}
+        onComplete={handleAnimationComplete}
       />
       <SimulationModal
         visible={simOpen}

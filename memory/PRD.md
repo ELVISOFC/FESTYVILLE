@@ -50,9 +50,15 @@ A music festival tycoon mobile prototype inspired by RollerCoaster Tycoon, SimCi
 ## Not yet implemented (deferred per scope)
 - Live simulation animation (crowd movement, performer spotlight) — currently jumps straight to results.
 - Multi-player rooms / asynchronous PvP.
-- 25-phase content (currently 10 phase tiers, 16 base items).
-- Pre-planning genre/lineup booking flow.
-- Push-notification reminders when builds complete.
+- 25-phase content (currently 10 phase tiers, 16 base items + 12 artists).
+- Push-notification reminders via cloud (currently local-only on native).
+
+## Iteration 2 Additions
+- **Pre-planning + 7-day cycle pacing**: Each cycle has 7 in-game days. Day 1 requires picking a festival genre before "End Day" works. Days 1–6 are planning/build days; Day 7 swaps the button to "FESTIVAL DAY — Run Festival" and the main HUD banner highlights it.
+- **Genre + Lineup**: 5 genres (EDM, Indie/Folk, Hip-Hop, Rock, Mixed) and 12 artists. Booking an artist deducts a fee, must match the festival genre (unless Mixed). Simulate now adds a `lineup_boost` to stage_score and a `genre_bonus` (+10 pure-genre, +8 mixed-3genre).
+- **Micro-progressions**: Each End-Day fires a random Daily News event awarding bonus coins/XP and logging into `day_log`.
+- **Cycle auto-reset**: After Run Festival, cycle increments and genre/lineup/day reset; buildings + coins persist.
+- **Push notifications when builds complete**: Local notifications scheduled at `ready_at` via `expo-notifications` on native and `window.Notification` + `setTimeout` on web. Permission is requested on first placement. Speed-up cancels the pending notification.
 
 ## Smart Business Enhancement
 Speed-up timers create a **gentle coin sink** that doubles as a future **soft-currency monetization hook**: the same endpoint can swap coins for a premium gem in v2 without touching client code — the exact playbook that powers Clash of Clans' billion-dollar economy.

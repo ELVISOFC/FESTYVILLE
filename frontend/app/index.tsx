@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import { api, type CatalogItem, type PlayerState, type SimResult } from "../src/api";
 import { COLORS, CATEGORY_COLORS } from "../src/theme";
 import { ensurePermission, scheduleBuildComplete, cancelScheduled } from "../src/notifications";
+import { Analytics } from "../src/analytics";
 import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
 import IsometricGrid, { TILE_W, TILE_H, gridToScreen } from "../src/components/IsometricGrid";
@@ -46,8 +47,12 @@ export default function Index() {
   const pendingResultRef = useRef<SimResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [tick, setTick] = useState(0); // 1Hz refresh for timer→ready transitions
+  const [tick, setTick] = useState(0);
   const lastPolledRef = useRef(0);
+
+  useEffect(() => {
+    Analytics.screenView("main_game");
+  }, []);
 
   const refreshState = useCallback(async () => {
     const s = await api.state();
@@ -62,6 +67,7 @@ export default function Index() {
         setGridSize(c.grid_size);
         setState(s as PlayerState);
       } catch (e: any) {
+        Analytics.errorOccurred("load_failed", e.message || String(e), "index_init");
         alertOrLog("Connection Error", e.message || String(e));
       } finally {
         setLoading(false);
@@ -93,7 +99,6 @@ export default function Index() {
   const handleTilePress = useCallback(
     (x: number, y: number) => {
       if (occupied.has(`${x},${y}`)) {
-        // Tap an occupied tile: speed up if building, otherwise no-op.
         const b = state?.buildings.find((bb) => bb.x === x && bb.y === y);
         if (b && b.status === "building") {
           if (Platform.OS === "web") {
@@ -124,7 +129,7 @@ export default function Index() {
     try {
       const s = await api.place(item.id, selectedTile.x, selectedTile.y);
       setState(s as PlayerState);
-      // Schedule a local push notification for when this build completes.
+      Analytics.buildingPlaced(item.id, item.category, item.tier, item.cost);
       const placed = (s as PlayerState).buildings.find(
         (b) => b.x === selectedTile.x && b.y === selectedTile.y
       );
@@ -142,6 +147,7 @@ export default function Index() {
       setSelectedTile(null);
       setDrawerOpen(false);
     } catch (e: any) {
+      Analytics.errorOccurred("place_failed", e.message || String(e), "handlePick");
       alertOrLog("Cannot place", e.message || String(e));
     } finally {
       setBusy(false);
@@ -151,10 +157,17 @@ export default function Index() {
   const doSpeedup = async (id: string) => {
     setBusy(true);
     try {
+      const building = state?.buildings.find((b) => b.id === id);
       const s = await api.speedup(id);
       setState(s as PlayerState);
+      if (building) {
+        const item = catalog.find((c) => c.id === building.catalog_id);
+        const coinsSpent = item ? Math.ceil(item.cost * 0.5) : 0;
+        Analytics.buildingSpedUp(building.catalog_id, coinsSpent);
+      }
       cancelScheduled(id).catch(() => {});
     } catch (e: any) {
+      Analytics.errorOccurred("speedup_failed", e.message || String(e), "doSpeedup");
       alertOrLog("Cannot speed up", e.message || String(e));
     } finally {
       setBusy(false);
@@ -168,17 +181,23 @@ export default function Index() {
       alertOrLog("Festival Cancelled", "Place and finish at least one building first.");
       return;
     }
-    // Start animation immediately, fire the API in parallel.
     setBusy(true);
     setSimAnimating(true);
     pendingResultRef.current = null;
     try {
       const r = await api.simulate();
       pendingResultRef.current = r as SimResult;
-      // Refresh state in the background so the next cycle data is fresh.
+      Analytics.festivalRun(
+        r.grade,
+        r.composite,
+        state.cycle,
+        r.rewards.coins,
+        r.rewards.xp
+      );
       refreshState().catch(() => {});
     } catch (e: any) {
       setSimAnimating(false);
+      Analytics.errorOccurred("simulate_failed", e.message || String(e), "handleRunFestival");
       alertOrLog("Festival Cancelled", e.message || String(e));
     } finally {
       setBusy(false);
@@ -206,9 +225,8 @@ export default function Index() {
   }
 
   const worldWidth = gridSize * TILE_W;
-  const worldHeight = (gridSize + 1) * TILE_H + 80; // padding for tall buildings
+  const worldHeight = (gridSize + 1) * TILE_H + 80;
 
-  // Sort buildings by y+x for proper paint order
   const sortedBuildings = [...state.buildings].sort((a, b) => (a.x + a.y) - (b.x + b.y));
 
   return (
@@ -270,7 +288,7 @@ export default function Index() {
                 const item = catalog.find((c) => c.id === b.catalog_id);
                 if (!item) return null;
                 const { sx, sy } = gridToScreen(b.x, b.y, gridSize);
-                const spriteHeight = 16 + item.tier * 8 + TILE_H; // matches BuildingSprite
+                const spriteHeight = 16 + item.tier * 8 + TILE_H;
                 const top = sy - spriteHeight + TILE_H;
                 return (
                   <View

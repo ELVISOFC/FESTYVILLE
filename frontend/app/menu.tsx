@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { api, type PlayerState } from "../src/api";
 import { COLORS, GRADE_COLORS } from "../src/theme";
+import { Analytics } from "../src/analytics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 function confirm(title: string, message: string): Promise<boolean> {
@@ -37,6 +38,7 @@ export default function Menu() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    Analytics.screenView("menu");
     (async () => {
       try {
         const myId = await api.getPlayerId();
@@ -55,6 +57,7 @@ export default function Menu() {
     setBusy(true);
     try {
       await api.newSave();
+      Analytics.newSave();
       router.replace("/");
     } finally { setBusy(false); }
   };
@@ -65,6 +68,7 @@ export default function Menu() {
     setBusy(true);
     try {
       await api.resetSave();
+      Analytics.resetSave();
       router.replace("/");
     } finally { setBusy(false); }
   };
@@ -80,6 +84,7 @@ export default function Menu() {
   };
 
   const replayTutorial = async () => {
+    Analytics.tutorialStep(0, "replay");
     try { await AsyncStorage.removeItem("festyville.tutorial.planning_seen"); } catch {}
     router.replace("/planning");
   };
@@ -95,7 +100,6 @@ export default function Menu() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
-        {/* Save summary card */}
         <View style={styles.card} testID="menu-save-card">
           <Text style={styles.cardLabel}>CURRENT SAVE</Text>
           {!state ? (

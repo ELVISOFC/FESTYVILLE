@@ -1,8 +1,16 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useEffect } from "react";
+import { initRemoteConfig } from "../src/remoteConfig";
+import { Analytics } from "../src/analytics";
 
 export default function RootLayout() {
+  useEffect(() => {
+    initRemoteConfig().catch(() => {});
+    Analytics.sessionStart();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />

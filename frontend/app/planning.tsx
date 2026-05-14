@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { api, type Artist, type Genre, type PlayerState } from "../src/api";
 import { COLORS } from "../src/theme";
+import { Analytics } from "../src/analytics";
 import TutorialModal from "../src/components/TutorialModal";
 
 const GENRE_COLORS: Record<string, string> = {
@@ -39,6 +40,7 @@ export default function Planning() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    Analytics.screenView("planning");
     (async () => {
       try {
         const [a, s] = await Promise.all([api.artists(), api.state()]);
@@ -46,6 +48,7 @@ export default function Planning() {
         setGenres(a.genres);
         setState(s as PlayerState);
       } catch (e: any) {
+        Analytics.errorOccurred("load_failed", e.message || String(e), "planning_init");
         alertOrLog("Connection Error", e.message || String(e));
       } finally {
         setLoading(false);
@@ -64,6 +67,7 @@ export default function Planning() {
     try {
       const s = await api.setGenre(gid);
       setState(s as PlayerState);
+      Analytics.genreSelected(gid);
     } catch (e: any) { alertOrLog("Cannot set genre", e.message); }
     finally { setBusy(false); }
   };
@@ -71,11 +75,16 @@ export default function Planning() {
   const toggleArtist = async (a: Artist) => {
     if (!state || busy) return;
     setBusy(true);
+    const inLineup = state.lineup.includes(a.id);
     try {
-      const inLineup = state.lineup.includes(a.id);
       const s = inLineup ? await api.unbookArtist(a.id) : await api.bookArtist(a.id);
       setState(s as PlayerState);
-    } catch (e: any) { alertOrLog(inMessage(state.lineup.includes(a.id)), e.message); }
+      if (inLineup) {
+        Analytics.artistUnbooked(a.id);
+      } else {
+        Analytics.artistBooked(a.id, a.genre, a.tier, a.fee);
+      }
+    } catch (e: any) { alertOrLog(inMessage(inLineup), e.message); }
     finally { setBusy(false); }
   };
 
@@ -85,6 +94,7 @@ export default function Planning() {
     try {
       const s = await api.advanceDay();
       setState(s as PlayerState);
+      Analytics.dayAdvanced(s.day, s.cycle);
       if (s.last_event) {
         alertOrLog(`Day ${s.day} — Daily News`, `${s.last_event.text}\n+${s.last_event.coins} coins · +${s.last_event.xp} XP`);
       }

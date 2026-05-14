@@ -50,16 +50,12 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd frontend && EXPO_PUBLIC_BACKEND_URL=https://b51dcb0a-b283-477e-957e-9ed4665e6def-00-9julwu23qt0i.riker.replit.dev:8000 npx expo start --web --port 5000"
+args = "cd frontend && npx expo start --web --port 5000"
 waitForPort = 5000
 
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3001
 
 [[ports]]
 localPort = 8000

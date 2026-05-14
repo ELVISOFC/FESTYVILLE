@@ -7,6 +7,7 @@ import os
 import logging
 import math
 import uuid
+import random
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -26,8 +27,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("festyville")
 
 # ---------- Catalog ----------
-# build_time in seconds. Small vendors/decor 3-5min. Large stages up to 30min.
-# For prototype playability we keep them but also expose speed-up via coins.
 CATALOG: List[Dict[str, Any]] = [
     # stages
     {"id": "stage_small",  "name": "Open Mic Stage",  "category": "stage",   "tier": 1, "cost": 200,  "build_time": 180,  "phase": 1, "score": 10, "footprint": 1, "color": "#FF0055"},
@@ -35,18 +34,15 @@ CATALOG: List[Dict[str, Any]] = [
     {"id": "stage_edm",    "name": "EDM Megadome",    "category": "stage",   "tier": 3, "cost": 2500, "build_time": 1200, "phase": 4, "score": 60, "footprint": 1, "color": "#CC0044"},
     {"id": "stage_main",   "name": "Main Stage",      "category": "stage",   "tier": 4, "cost": 6000, "build_time": 1800, "phase": 6, "score": 100,"footprint": 1, "color": "#FF0055"},
     {"id": "stage_grand",  "name": "Grand Arch",      "category": "stage",   "tier": 5, "cost": 12000,"build_time": 1800, "phase": 8, "score": 160,"footprint": 1, "color": "#FFD700"},
-
     # vendors
     {"id": "food_truck",   "name": "Food Truck",      "category": "vendor",  "tier": 1, "cost": 100, "build_time": 180,  "phase": 1, "score": 5,  "footprint": 1, "color": "#FF9900"},
     {"id": "drink_bar",    "name": "Drink Bar",       "category": "vendor",  "tier": 2, "cost": 250, "build_time": 240,  "phase": 1, "score": 8,  "footprint": 1, "color": "#FFB347"},
     {"id": "merch_tent",   "name": "Merch Tent",      "category": "vendor",  "tier": 2, "cost": 400, "build_time": 300,  "phase": 2, "score": 10, "footprint": 1, "color": "#995C00"},
     {"id": "vip_lounge",   "name": "VIP Lounge",      "category": "vendor",  "tier": 4, "cost": 3000,"build_time": 1500, "phase": 5, "score": 40, "footprint": 1, "color": "#FFD700"},
-
     # utility
     {"id": "restroom",     "name": "Restroom",        "category": "utility", "tier": 1, "cost": 80,  "build_time": 180,  "phase": 1, "score": 4,  "footprint": 1, "color": "#00FFFF"},
     {"id": "first_aid",    "name": "First Aid",       "category": "utility", "tier": 2, "cost": 200, "build_time": 240,  "phase": 2, "score": 6,  "footprint": 1, "color": "#00CCCC"},
     {"id": "power_gen",    "name": "Power Generator", "category": "utility", "tier": 3, "cost": 600, "build_time": 420,  "phase": 3, "score": 10, "footprint": 1, "color": "#009999"},
-
     # decor
     {"id": "neon_arch",    "name": "Neon Arch",       "category": "decor",   "tier": 1, "cost": 60,  "build_time": 180,  "phase": 1, "score": 3,  "footprint": 1, "color": "#00FF66"},
     {"id": "fire_pit",     "name": "Fire Pit",        "category": "decor",   "tier": 2, "cost": 180, "build_time": 240,  "phase": 2, "score": 5,  "footprint": 1, "color": "#FF9900"},
@@ -55,7 +51,7 @@ CATALOG: List[Dict[str, Any]] = [
 ]
 CATALOG_BY_ID = {item["id"]: item for item in CATALOG}
 
-GRID_SIZE = 8  # 8x8 isometric grid
+GRID_SIZE = 8
 DAYS_PER_CYCLE = 7
 
 GENRES = [
@@ -86,13 +82,84 @@ ARTISTS: List[Dict[str, Any]] = [
 ]
 ARTISTS_BY_ID = {a["id"]: a for a in ARTISTS}
 
-MICRO_EVENTS = [
-    {"text": "Local press buzz lifts hype",  "coins": 80,  "xp": 10},
-    {"text": "Influencer scouting tour visits", "coins": 60,  "xp": 15},
-    {"text": "Crew finds discount lumber",    "coins": 120, "xp": 5},
-    {"text": "Radio interview lands a sponsor", "coins": 150, "xp": 12},
-    {"text": "Weather is looking perfect",    "coins": 40,  "xp": 20},
-    {"text": "Ticket pre-sales spike",        "coins": 200, "xp": 8},
+# ---------- Side Characters ----------
+CHARACTERS: List[Dict[str, Any]] = [
+    {"id": "sky",   "name": "Sky",   "role": "PR Manager",     "emoji": "📣", "color": "#FF9900"},
+    {"id": "vault", "name": "Vault", "role": "Finance Wizard", "emoji": "💰", "color": "#FFD700"},
+    {"id": "marcy", "name": "Marcy", "role": "Merch Queen",    "emoji": "👑", "color": "#FF0055"},
+    {"id": "baz",   "name": "DJ Baz","role": "Stage Director", "emoji": "🎧", "color": "#00FFFF"},
+    {"id": "frank", "name": "Frank", "role": "Health Inspector","emoji": "🏥","color": "#00FF66"},
+    {"id": "axle",  "name": "Axle",  "role": "Site Foreman",   "emoji": "🔧", "color": "#9966FF"},
+]
+CHARACTERS_BY_ID = {c["id"]: c for c in CHARACTERS}
+
+# ---------- Micro Events (30 events attributed to characters) ----------
+MICRO_EVENTS: List[Dict[str, Any]] = [
+    # Sky — PR & buzz
+    {"text": "Local press buzz lifts hype",              "coins": 80,  "xp": 10, "character_id": "sky"},
+    {"text": "Influencer scouting tour visits",           "coins": 60,  "xp": 15, "character_id": "sky"},
+    {"text": "Radio interview lands a sponsor",           "coins": 150, "xp": 12, "character_id": "sky"},
+    {"text": "Ticket pre-sales spike!",                   "coins": 200, "xp": 8,  "character_id": "sky"},
+    {"text": "Viral post sends hype meter off the charts","coins": 120, "xp": 20, "character_id": "sky"},
+    {"text": "Food blog gives 5-star preview write-up",   "coins": 130, "xp": 12, "character_id": "sky"},
+    {"text": "Celeb spotted in the crowd — instant buzz", "coins": 170, "xp": 10, "character_id": "sky"},
+    # Vault — finance & deals
+    {"text": "Crew finds discount lumber",               "coins": 120, "xp": 5,  "character_id": "vault"},
+    {"text": "Last-minute sponsor deal signed",           "coins": 250, "xp": 10, "character_id": "vault"},
+    {"text": "Insurance refund arrives",                  "coins": 90,  "xp": 5,  "character_id": "vault"},
+    {"text": "Equipment lease renegotiated cheaply",      "coins": 140, "xp": 8,  "character_id": "vault"},
+    {"text": "Tax break approved for local event",        "coins": 180, "xp": 6,  "character_id": "vault"},
+    {"text": "VIP ticket upgrade upsell works",           "coins": 220, "xp": 8,  "character_id": "vault"},
+    {"text": "Crowdfunding stretch goal hit!",            "coins": 300, "xp": 15, "character_id": "vault"},
+    # Marcy — merch
+    {"text": "Limited merch drop sells out instantly",   "coins": 130, "xp": 12, "character_id": "marcy"},
+    {"text": "Collab with local artist boosts merch",    "coins": 100, "xp": 15, "character_id": "marcy"},
+    {"text": "Vintage merch found at discount",          "coins": 70,  "xp": 8,  "character_id": "marcy"},
+    {"text": "Flash sale generates massive queue",       "coins": 160, "xp": 10, "character_id": "marcy"},
+    # Baz — stage & sound
+    {"text": "Sound engineers arrive early — setup bonus","coins": 80, "xp": 18, "character_id": "baz"},
+    {"text": "Stage lighting upgraded for free",         "coins": 50,  "xp": 20, "character_id": "baz"},
+    {"text": "Secret surprise performance locked in",    "coins": 110, "xp": 25, "character_id": "baz"},
+    {"text": "Monitor mix perfected — crowd will love it","coins": 60, "xp": 22, "character_id": "baz"},
+    # Frank — health & safety
+    {"text": "Health inspection passed with flying colors","coins": 80,"xp": 10, "character_id": "frank"},
+    {"text": "Extra med kit donated by a local clinic",  "coins": 40,  "xp": 12, "character_id": "frank"},
+    {"text": "Safety audit: zero violations!",           "coins": 100, "xp": 15, "character_id": "frank"},
+    {"text": "Paramedic crew volunteers for free",       "coins": 60,  "xp": 18, "character_id": "frank"},
+    # Axle — construction & site
+    {"text": "Crew works overtime — build bonus earned", "coins": 90,  "xp": 10, "character_id": "axle"},
+    {"text": "Scaffold recycled — materials saved",      "coins": 110, "xp": 8,  "character_id": "axle"},
+    {"text": "Perfect weather forecast for setup",       "coins": 40,  "xp": 20, "character_id": "axle"},
+    {"text": "Gear delivery arrives ahead of schedule",  "coins": 70,  "xp": 14, "character_id": "axle"},
+]
+
+# ---------- Achievements ----------
+ACHIEVEMENTS: List[Dict[str, Any]] = [
+    {"id": "first_build",    "name": "Ground Breaker",      "desc": "Place your first building",          "emoji": "🏗️"},
+    {"id": "stage_debut",    "name": "Stage Debut",          "desc": "Place your first stage",             "emoji": "🎤"},
+    {"id": "full_house",     "name": "Full House",           "desc": "Have 5 ready buildings at once",     "emoji": "🏟️"},
+    {"id": "first_festival", "name": "Festival Starter",     "desc": "Run your first festival",            "emoji": "🎪"},
+    {"id": "grade_a",        "name": "A-Lister",             "desc": "Score an A or S grade",              "emoji": "⭐"},
+    {"id": "grade_s",        "name": "Legendary",            "desc": "Score a perfect S grade",            "emoji": "🏆"},
+    {"id": "genre_pure",     "name": "Genre Master",         "desc": "Run a pure-genre festival",          "emoji": "🎵"},
+    {"id": "mixed_bag",      "name": "Mixed Bag",            "desc": "Mixed festival with 3+ genres",      "emoji": "🎶"},
+    {"id": "triple_lineup",  "name": "Triple Threat",        "desc": "Book 3 or more artists",             "emoji": "🎸"},
+    {"id": "speed_demon",    "name": "Speed Demon",          "desc": "Speed up a building",                "emoji": "⚡"},
+    {"id": "cycle_3",        "name": "Seasoned Organizer",   "desc": "Reach Cycle 3",                      "emoji": "📅"},
+    {"id": "phase_2",        "name": "Rising Promoter",      "desc": "Reach Phase 2",                      "emoji": "📈"},
+    {"id": "minigame_ace",   "name": "Mini-Game Ace",        "desc": "Score 4+ rounds in Sound Check",     "emoji": "🎮"},
+]
+ACHIEVEMENTS_BY_ID = {a["id"]: a for a in ACHIEVEMENTS}
+
+# ---------- Daily Challenges ----------
+DAILY_CHALLENGES: List[Dict[str, Any]] = [
+    {"id": "book_artist",   "text": "Book at least 1 artist this cycle",    "target": "lineup_min_1",   "coins": 200, "xp": 30},
+    {"id": "book_2",        "text": "Book 2 or more artists",               "target": "lineup_min_2",   "coins": 350, "xp": 50},
+    {"id": "place_vendor",  "text": "Place a vendor building",              "target": "has_vendor",     "coins": 150, "xp": 20},
+    {"id": "decor_2",       "text": "Add at least 2 decor pieces",          "target": "decor_min_2",    "coins": 120, "xp": 25},
+    {"id": "play_minigame", "text": "Play a mini game this cycle",          "target": "minigame_played","coins": 100, "xp": 15},
+    {"id": "pure_genre",    "text": "Pick a non-mixed festival genre",      "target": "has_pure_genre", "coins": 180, "xp": 20},
+    {"id": "power_up",      "text": "Build a Power Generator",              "target": "has_power_gen",  "coins": 200, "xp": 25},
 ]
 
 # ---------- Models ----------
@@ -101,9 +168,9 @@ class Building(BaseModel):
     catalog_id: str
     x: int
     y: int
-    placed_at: float            # epoch seconds
-    ready_at: float             # epoch seconds
-    status: str = "building"    # building | ready
+    placed_at: float
+    ready_at: float
+    status: str = "building"
 
 class PlayerState(BaseModel):
     player_id: str
@@ -122,6 +189,10 @@ class PlayerState(BaseModel):
     genre: Optional[str] = None
     lineup: List[str] = []
     day_log: List[Dict[str, Any]] = []
+    achievements: List[str] = []
+    daily_challenge: Optional[Dict[str, Any]] = None
+    minigame_last: str = ""
+    streak: int = 0
     created_at: float = Field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
 
 class PlaceRequest(BaseModel):
@@ -144,7 +215,6 @@ def now_ts() -> float:
     return datetime.now(timezone.utc).timestamp()
 
 def refresh_buildings(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Mark buildings ready if ready_at passed. Mutates and returns."""
     t = now_ts()
     for b in state.get("buildings", []):
         if b.get("status") == "building" and b.get("ready_at", 0) <= t:
@@ -152,10 +222,9 @@ def refresh_buildings(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 def xp_for_level(level: int) -> int:
-    return 100 * level * level  # quadratic curve
+    return 100 * level * level
 
 def compute_phase(level: int) -> int:
-    # 10 phases over levels 1..30; cap at 10
     return min(10, max(1, (level - 1) // 3 + 1))
 
 def grade_from_score(score: int) -> str:
@@ -166,18 +235,104 @@ def grade_from_score(score: int) -> str:
     if score >= 35: return "D"
     return "F"
 
+def assign_daily_challenge(cycle: int) -> Dict[str, Any]:
+    idx = (cycle - 1) % len(DAILY_CHALLENGES)
+    ch = dict(DAILY_CHALLENGES[idx])
+    ch["completed"] = False
+    return ch
+
+def check_challenge_complete(state: Dict[str, Any]) -> bool:
+    ch = state.get("daily_challenge")
+    if not ch or ch.get("completed"):
+        return False
+    target = ch.get("target", "")
+    buildings = state.get("buildings", [])
+    lineup = state.get("lineup", [])
+    if target == "lineup_min_1":
+        return len(lineup) >= 1
+    if target == "lineup_min_2":
+        return len(lineup) >= 2
+    if target == "has_vendor":
+        return any(CATALOG_BY_ID.get(b["catalog_id"], {}).get("category") == "vendor" for b in buildings)
+    if target == "decor_min_2":
+        return sum(1 for b in buildings if CATALOG_BY_ID.get(b["catalog_id"], {}).get("category") == "decor") >= 2
+    if target == "minigame_played":
+        last = state.get("minigame_last", "")
+        return last.startswith(f"{state.get('cycle', 1)}_")
+    if target == "has_pure_genre":
+        genre = state.get("genre")
+        return bool(genre and genre != "mixed")
+    if target == "has_power_gen":
+        return any(b["catalog_id"] == "power_gen" for b in buildings)
+    return False
+
+def check_achievements(state: Dict[str, Any], context: Dict[str, Any] = {}) -> List[str]:
+    already = set(state.get("achievements", []))
+    new_unlocks = []
+
+    def unlock(aid: str):
+        if aid not in already:
+            new_unlocks.append(aid)
+            already.add(aid)
+
+    buildings = state.get("buildings", [])
+    ready = [b for b in buildings if b.get("status") == "ready"]
+
+    if buildings:
+        unlock("first_build")
+    if any(CATALOG_BY_ID.get(b["catalog_id"], {}).get("category") == "stage" for b in buildings):
+        unlock("stage_debut")
+    if len(ready) >= 5:
+        unlock("full_house")
+    if state.get("festivals_run", 0) > 0:
+        unlock("first_festival")
+    if state.get("last_grade") in ("A", "S"):
+        unlock("grade_a")
+    if state.get("last_grade") == "S":
+        unlock("grade_s")
+    if state.get("phase", 1) >= 2:
+        unlock("phase_2")
+    if len(state.get("lineup", [])) >= 3:
+        unlock("triple_lineup")
+    if state.get("cycle", 1) >= 3:
+        unlock("cycle_3")
+
+    grade = context.get("grade")
+    if grade in ("A", "S"):
+        unlock("grade_a")
+    if grade == "S":
+        unlock("grade_s")
+    if context.get("genre_pure"):
+        unlock("genre_pure")
+    if context.get("mixed_bag"):
+        unlock("mixed_bag")
+    if context.get("speed_demon"):
+        unlock("speed_demon")
+    if context.get("minigame_ace"):
+        unlock("minigame_ace")
+
+    return new_unlocks
+
 async def get_or_create_state(player_id: str) -> Dict[str, Any]:
     doc = await db.players.find_one({"player_id": player_id}, {"_id": 0})
     if not doc:
         s = PlayerState(player_id=player_id)
         await db.players.insert_one(s.model_dump())
         doc = s.model_dump()
-    # Backfill new fields for legacy players
-    defaults = {"cycle": 1, "day": 1, "genre": None, "lineup": [], "day_log": []}
+    defaults = {
+        "cycle": 1, "day": 1, "genre": None, "lineup": [], "day_log": [],
+        "achievements": [], "daily_challenge": None, "minigame_last": "", "streak": 0,
+    }
     missing = {k: v for k, v in defaults.items() if k not in doc}
     if missing:
         doc.update(missing)
         await db.players.update_one({"player_id": player_id}, {"$set": missing})
+    if not doc.get("daily_challenge"):
+        doc["daily_challenge"] = assign_daily_challenge(doc.get("cycle", 1))
+        await db.players.update_one(
+            {"player_id": player_id},
+            {"$set": {"daily_challenge": doc["daily_challenge"]}}
+        )
     doc = refresh_buildings(doc)
     await db.players.update_one({"player_id": player_id}, {"$set": {"buildings": doc["buildings"]}})
     return doc
@@ -195,6 +350,10 @@ async def get_catalog():
 async def get_artists():
     return {"artists": ARTISTS, "genres": GENRES}
 
+@api_router.get("/characters")
+async def get_characters():
+    return {"characters": CHARACTERS, "achievements": ACHIEVEMENTS}
+
 @api_router.post("/state/{player_id}/set_genre")
 async def set_genre(player_id: str, body: Dict[str, str]):
     state = await get_or_create_state(player_id)
@@ -202,7 +361,6 @@ async def set_genre(player_id: str, body: Dict[str, str]):
     if genre and genre not in {g["id"] for g in GENRES}:
         raise HTTPException(400, "Unknown genre")
     state["genre"] = genre or None
-    # If switching to a non-mixed genre, drop incompatible artists
     if genre and genre != "mixed":
         state["lineup"] = [aid for aid in state["lineup"] if ARTISTS_BY_ID.get(aid, {}).get("genre") == genre]
     await db.players.update_one(
@@ -222,18 +380,25 @@ async def book_artist(player_id: str, body: Dict[str, str]):
     if artist["phase"] > state["phase"]:
         raise HTTPException(400, f"Locked. Reach phase {artist['phase']}.")
     if state["genre"] and state["genre"] != "mixed" and artist["genre"] != state["genre"]:
-        raise HTTPException(400, f"Artist genre doesn't match festival genre")
+        raise HTTPException(400, "Artist genre doesn't match festival genre")
     if aid in state["lineup"]:
         raise HTTPException(400, "Already booked")
     if state["coins"] < artist["fee"]:
         raise HTTPException(400, "Not enough coins to pay fee")
     state["coins"] -= artist["fee"]
     state["lineup"].append(aid)
+
+    new_ach = check_achievements(state)
+    if new_ach:
+        state.setdefault("achievements", []).extend(new_ach)
+        state["achievements"] = list(set(state["achievements"]))
+
     await db.players.update_one(
         {"player_id": player_id},
-        {"$set": {"coins": state["coins"], "lineup": state["lineup"]}}
+        {"$set": {"coins": state["coins"], "lineup": state["lineup"], "achievements": state["achievements"]}}
     )
     state["server_time"] = now_ts()
+    state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
 @api_router.post("/state/{player_id}/unbook_artist")
@@ -243,7 +408,6 @@ async def unbook_artist(player_id: str, body: Dict[str, str]):
     if aid not in state["lineup"]:
         raise HTTPException(404, "Not in lineup")
     state["lineup"].remove(aid)
-    # 50% refund
     artist = ARTISTS_BY_ID.get(aid)
     if artist:
         state["coins"] += artist["fee"] // 2
@@ -258,33 +422,105 @@ async def unbook_artist(player_id: str, body: Dict[str, str]):
 async def advance_day(player_id: str):
     state = await get_or_create_state(player_id)
     if state["day"] >= DAYS_PER_CYCLE:
-        raise HTTPException(400, f"Already on festival day. Run the festival!")
+        raise HTTPException(400, "Already on festival day. Run the festival!")
     if state["day"] == 1 and not state["genre"]:
         raise HTTPException(400, "Pick a genre before ending Day 1")
-    # Pull a random micro-progression event
-    import random
+
     ev = random.choice(MICRO_EVENTS)
     state["day"] += 1
     state["coins"] += ev["coins"]
     state["xp"] += ev["xp"]
-    # Level-up loop
+    state["streak"] = state.get("streak", 0) + 1
+
+    # Streak bonus every 3 days
+    streak_bonus_coins = 0
+    streak_bonus_xp = 0
+    if state["streak"] > 0 and state["streak"] % 3 == 0:
+        streak_bonus_coins = 100
+        streak_bonus_xp = 20
+        state["coins"] += streak_bonus_coins
+        state["xp"] += streak_bonus_xp
+
     while state["xp"] >= xp_for_level(state["level"]):
         state["level"] += 1
     state["phase"] = compute_phase(state["level"])
-    log_entry = {"day": state["day"], "text": ev["text"], "coins": ev["coins"], "xp": ev["xp"]}
+
+    log_entry = {
+        "day": state["day"],
+        "text": ev["text"],
+        "coins": ev["coins"] + streak_bonus_coins,
+        "xp": ev["xp"] + streak_bonus_xp,
+        "character_id": ev.get("character_id"),
+        "streak_bonus": streak_bonus_coins > 0,
+    }
     state["day_log"].append(log_entry)
-    # Trim log to last 20
     state["day_log"] = state["day_log"][-20:]
+
+    new_ach = check_achievements(state)
+    if new_ach:
+        state.setdefault("achievements", []).extend(new_ach)
+        state["achievements"] = list(set(state["achievements"]))
+
     await db.players.update_one(
         {"player_id": player_id},
         {"$set": {
             "day": state["day"], "coins": state["coins"], "xp": state["xp"],
             "level": state["level"], "phase": state["phase"], "day_log": state["day_log"],
+            "streak": state["streak"], "achievements": state["achievements"],
         }}
     )
     state["server_time"] = now_ts()
     state["last_event"] = log_entry
+    state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
+
+@api_router.post("/state/{player_id}/minigame_reward")
+async def minigame_reward(player_id: str, body: Dict[str, Any]):
+    state = await get_or_create_state(player_id)
+    game = body.get("game", "sound_check")
+    score = min(5, max(0, int(body.get("score", 0))))
+
+    cycle = state.get("cycle", 1)
+    day = state.get("day", 1)
+    minigame_last = state.get("minigame_last", "")
+    current_key = f"{cycle}_{day}"
+
+    if minigame_last == current_key:
+        raise HTTPException(400, "Mini game already played today")
+
+    coin_reward = score * 40 + 20
+    xp_reward = score * 8 + 5
+
+    state["coins"] += coin_reward
+    state["xp"] += xp_reward
+    state["minigame_last"] = current_key
+
+    while state["xp"] >= xp_for_level(state["level"]):
+        state["level"] += 1
+    state["phase"] = compute_phase(state["level"])
+
+    context = {"minigame_ace": (game == "sound_check" and score >= 4)}
+    new_ach = check_achievements(state, context)
+    if new_ach:
+        state.setdefault("achievements", []).extend(new_ach)
+        state["achievements"] = list(set(state["achievements"]))
+
+    await db.players.update_one(
+        {"player_id": player_id},
+        {"$set": {
+            "coins": state["coins"], "xp": state["xp"],
+            "level": state["level"], "phase": state["phase"],
+            "minigame_last": current_key, "achievements": state["achievements"],
+        }}
+    )
+    state["server_time"] = now_ts()
+    state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
+    return {
+        "coins_earned": coin_reward,
+        "xp_earned": xp_reward,
+        "state": state,
+        "new_achievements": state.get("new_achievements", []),
+    }
 
 @api_router.post("/state/{player_id}/start_cycle")
 async def start_cycle(player_id: str):
@@ -294,11 +530,12 @@ async def start_cycle(player_id: str):
     state["genre"] = None
     state["lineup"] = []
     state["day_log"] = []
+    state["daily_challenge"] = assign_daily_challenge(state["cycle"])
     await db.players.update_one(
         {"player_id": player_id},
         {"$set": {
             "cycle": state["cycle"], "day": 1, "genre": None,
-            "lineup": [], "day_log": [],
+            "lineup": [], "day_log": [], "daily_challenge": state["daily_challenge"],
         }}
     )
     state["server_time"] = now_ts()
@@ -336,11 +573,18 @@ async def place_building(player_id: str, req: PlaceRequest):
     ).model_dump()
     state["buildings"].append(new_building)
     state["coins"] -= item["cost"]
+
+    new_ach = check_achievements(state)
+    if new_ach:
+        state.setdefault("achievements", []).extend(new_ach)
+        state["achievements"] = list(set(state["achievements"]))
+
     await db.players.update_one(
         {"player_id": player_id},
-        {"$set": {"buildings": state["buildings"], "coins": state["coins"]}}
+        {"$set": {"buildings": state["buildings"], "coins": state["coins"], "achievements": state["achievements"]}}
     )
     state["server_time"] = now_ts()
+    state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
 @api_router.post("/state/{player_id}/speedup")
@@ -352,17 +596,24 @@ async def speedup(player_id: str, req: SpeedupRequest):
     if target["status"] == "ready":
         return state
     remaining = max(0, target["ready_at"] - now_ts())
-    cost = max(10, int(remaining / 6))  # 10 coins per minute remaining-ish
+    cost = max(10, int(remaining / 6))
     if state["coins"] < cost:
         raise HTTPException(400, f"Need {cost} coins to speed up")
     state["coins"] -= cost
     target["status"] = "ready"
     target["ready_at"] = now_ts()
+
+    new_ach = check_achievements(state, {"speed_demon": True})
+    if new_ach:
+        state.setdefault("achievements", []).extend(new_ach)
+        state["achievements"] = list(set(state["achievements"]))
+
     await db.players.update_one(
         {"player_id": player_id},
-        {"$set": {"buildings": state["buildings"], "coins": state["coins"]}}
+        {"$set": {"buildings": state["buildings"], "coins": state["coins"], "achievements": state["achievements"]}}
     )
     state["server_time"] = now_ts()
+    state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
 @api_router.post("/state/{player_id}/demolish")
@@ -395,15 +646,12 @@ async def simulate(player_id: str):
     utilities = cat_items("utility")
     decors = cat_items("decor")
 
-    # Penalty for in-progress builds: signals incomplete festival.
     in_progress = [b for b in state["buildings"] if b["status"] == "building"]
     penalty = min(20, len(in_progress) * 4)
 
-    # Stage score: average tier weight + count bonus, capped 100
     stage_raw = sum(CATALOG_BY_ID[b["catalog_id"]]["score"] for b in stages)
     stage_score = min(100, stage_raw * 1.2 if stages else 0)
 
-    # Crowd flow: penalize clustering. Compute avg pairwise distance among ready bldgs.
     if building_count >= 2:
         coords = [(b["x"], b["y"]) for b in ready]
         total, count = 0.0, 0
@@ -413,30 +661,25 @@ async def simulate(player_id: str):
                 total += math.sqrt(dx*dx + dy*dy)
                 count += 1
         avg_d = total / max(1, count)
-        # Ideal avg distance roughly 3-5 on 8x8 grid
         crowd_flow = max(0, min(100, int((avg_d / 5.0) * 100)))
     else:
         crowd_flow = 30
 
-    # Vendor coverage: target 3 vendors per stage
     if stages:
         ratio = len(vendors) / (3 * len(stages))
         vendor_coverage = min(100, int(ratio * 100))
     else:
         vendor_coverage = min(60, len(vendors) * 15)
 
-    # Utility coverage: target 2 utility per stage
     if stages:
         ratio = len(utilities) / (2 * len(stages))
         utility_coverage = min(100, int(ratio * 100))
     else:
         utility_coverage = min(60, len(utilities) * 20)
 
-    # Aesthetic from decor count + tier
     decor_raw = sum(CATALOG_BY_ID[b["catalog_id"]]["score"] for b in decors)
     aesthetic = min(100, decor_raw * 6)
 
-    # Lineup bonus: artist boosts add to stage_score; genre match adds composite bonus.
     lineup = state.get("lineup", [])
     festival_genre = state.get("genre")
     lineup_boost = 0
@@ -450,10 +693,14 @@ async def simulate(player_id: str):
             matched += 1
     stage_score = min(100, stage_score + lineup_boost)
     genre_bonus = 0
+    genre_pure = False
+    mixed_bag = False
     if lineup and festival_genre and matched == len(lineup) and festival_genre != "mixed":
-        genre_bonus = 10  # Pure-genre festival bonus
+        genre_bonus = 10
+        genre_pure = True
     elif festival_genre == "mixed" and len(set(ARTISTS_BY_ID[a]["genre"] for a in lineup if a in ARTISTS_BY_ID)) >= 3:
-        genre_bonus = 8   # Mixed festival with 3+ genres
+        genre_bonus = 8
+        mixed_bag = True
 
     weights = {"stage": 0.30, "crowd_flow": 0.20, "vendor": 0.20, "utility": 0.15, "aesthetic": 0.15}
     composite = (
@@ -466,25 +713,48 @@ async def simulate(player_id: str):
     composite = max(0, int(composite - penalty + genre_bonus))
     grade = grade_from_score(composite)
 
-    # Rewards
     coin_reward = int(composite * 15 + 200)
     xp_reward = int(composite * 5 + 50)
-    state["coins"] += coin_reward
-    state["xp"] += xp_reward
+
+    # Challenge check & bonus
+    challenge_bonus_coins = 0
+    challenge_bonus_xp = 0
+    challenge_completed = False
+    ch = state.get("daily_challenge")
+    if ch and not ch.get("completed") and check_challenge_complete(state):
+        challenge_bonus_coins = ch.get("coins", 0)
+        challenge_bonus_xp = ch.get("xp", 0)
+        challenge_completed = True
+        state["daily_challenge"]["completed"] = True
+
+    state["coins"] += coin_reward + challenge_bonus_coins
+    state["xp"] += xp_reward + challenge_bonus_xp
     state["festivals_run"] = state.get("festivals_run", 0) + 1
     state["last_grade"] = grade
     state["last_score"] = composite
-    # Auto-start next cycle: reset day/genre/lineup but keep buildings & coins/xp.
+    state["streak"] = 0  # Reset streak on festival run
     state["cycle"] = state.get("cycle", 1) + 1
     state["day"] = 1
     state["genre"] = None
     state["lineup"] = []
     state["day_log"] = []
 
-    # Level up
     while state["xp"] >= xp_for_level(state["level"]):
         state["level"] += 1
     state["phase"] = compute_phase(state["level"])
+
+    context = {
+        "grade": grade,
+        "genre_pure": genre_pure,
+        "mixed_bag": mixed_bag,
+    }
+    new_ach = check_achievements(state, context)
+    if new_ach:
+        state.setdefault("achievements", []).extend(new_ach)
+        state["achievements"] = list(set(state["achievements"]))
+
+    # Assign next cycle's challenge
+    state["daily_challenge"] = assign_daily_challenge(state["cycle"])
 
     await db.players.update_one(
         {"player_id": player_id},
@@ -493,11 +763,11 @@ async def simulate(player_id: str):
             "phase": state["phase"], "festivals_run": state["festivals_run"],
             "last_grade": grade, "last_score": composite,
             "cycle": state["cycle"], "day": state["day"], "genre": None,
-            "lineup": [], "day_log": [],
+            "lineup": [], "day_log": [], "streak": 0,
+            "achievements": state["achievements"], "daily_challenge": state["daily_challenge"],
         }}
     )
 
-    # Save to leaderboard
     await db.leaderboard.insert_one({
         "player_id": player_id,
         "name": state.get("name", "Festival Boss"),
@@ -520,6 +790,13 @@ async def simulate(player_id: str):
         "genre_bonus": genre_bonus,
         "lineup_boost": lineup_boost,
         "rewards": {"coins": coin_reward, "xp": xp_reward},
+        "challenge": {
+            "completed": challenge_completed,
+            "bonus_coins": challenge_bonus_coins,
+            "bonus_xp": challenge_bonus_xp,
+            "name": ch.get("text") if ch else None,
+        } if ch else None,
+        "new_achievements": [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID],
         "state": {
             "coins": state["coins"], "xp": state["xp"],
             "level": state["level"], "phase": state["phase"],
@@ -530,12 +807,11 @@ async def simulate(player_id: str):
 
 @api_router.post("/state/{player_id}/reset")
 async def reset_player(player_id: str):
-    """Wipe progress but keep the same player_id (and name + saved leaderboard)."""
     fresh = PlayerState(player_id=player_id).model_dump()
-    # Keep existing name if any
     existing = await db.players.find_one({"player_id": player_id}, {"_id": 0, "name": 1})
     if existing and existing.get("name"):
         fresh["name"] = existing["name"]
+    fresh["daily_challenge"] = assign_daily_challenge(1)
     await db.players.update_one(
         {"player_id": player_id}, {"$set": fresh}, upsert=True
     )
@@ -559,18 +835,14 @@ async def rename(player_id: str, body: Dict[str, str]):
 @api_router.get("/leaderboard")
 async def leaderboard(limit: int = 25):
     cursor = db.leaderboard.find({}, {"_id": 0}).sort("score", -1).limit(limit)
-    rows = await cursor.to_list(length=limit)
-    return {"entries": rows}
+    docs = await cursor.to_list(length=limit)
+    return {"entries": docs}
 
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

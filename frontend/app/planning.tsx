@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -12,10 +12,13 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { api, type Artist, type Genre, type PlayerState } from "../src/api";
+import { api, type Artist, type Genre, type PlayerState, type Achievement } from "../src/api";
 import { COLORS } from "../src/theme";
 import { Analytics } from "../src/analytics";
 import TutorialModal from "../src/components/TutorialModal";
+import CharacterBubble from "../src/components/CharacterBubble";
+import MiniGameModal from "../src/components/MiniGameModal";
+import AchievementToast from "../src/components/AchievementToast";
 
 const GENRE_COLORS: Record<string, string> = {
   edm:    "#00FFFF",
@@ -38,6 +41,23 @@ export default function Planning() {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [miniGameOpen, setMiniGameOpen] = useState(false);
+  const [toastAchs, setToastAchs] = useState<Achievement[]>([]);
+  const toastQueue = useRef<Achievement[][]>([]);
+
+  const showAchievements = (achs: Achievement[]) => {
+    if (!achs || achs.length === 0) return;
+    // Show one at a time
+    for (const a of achs) {
+      toastQueue.current.push([a]);
+    }
+    if (toastAchs.length === 0) drainQueue();
+  };
+
+  const drainQueue = () => {
+    const next = toastQueue.current.shift();
+    if (next) setToastAchs(next);
+  };
 
   useEffect(() => {
     Analytics.screenView("planning");
@@ -79,11 +99,11 @@ export default function Planning() {
     try {
       const s = inLineup ? await api.unbookArtist(a.id) : await api.bookArtist(a.id);
       setState(s as PlayerState);
-      if (inLineup) {
-        Analytics.artistUnbooked(a.id);
-      } else {
-        Analytics.artistBooked(a.id, a.genre, a.tier, a.fee);
+      if (!inLineup && (s as any).new_achievements?.length) {
+        showAchievements((s as any).new_achievements);
       }
+      if (inLineup) Analytics.artistUnbooked(a.id);
+      else Analytics.artistBooked(a.id, a.genre, a.tier, a.fee);
     } catch (e: any) { alertOrLog(inMessage(inLineup), e.message); }
     finally { setBusy(false); }
   };
@@ -95,11 +115,19 @@ export default function Planning() {
       const s = await api.advanceDay();
       setState(s as PlayerState);
       Analytics.dayAdvanced(s.day, s.cycle);
-      if (s.last_event) {
-        alertOrLog(`Day ${s.day} — Daily News`, `${s.last_event.text}\n+${s.last_event.coins} coins · +${s.last_event.xp} XP`);
+      if ((s as any).new_achievements?.length) {
+        showAchievements((s as any).new_achievements);
       }
     } catch (e: any) { alertOrLog("Cannot end day", e.message); }
     finally { setBusy(false); }
+  };
+
+  const handleMiniGameReward = async (coins: number, xp: number) => {
+    // Refresh state to pick up server-side changes
+    try {
+      const s = await api.state();
+      setState(s as PlayerState);
+    } catch {}
   };
 
   if (loading || !state) {
@@ -112,9 +140,16 @@ export default function Planning() {
 
   const day = state.day;
   const isFestivalDay = day >= 7;
+  const ch = state.daily_challenge;
+  const miniPlayedToday = state.minigame_last === `${state.cycle}_${state.day}`;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
+      {/* Achievement toast */}
+      {toastAchs.length > 0 && (
+        <AchievementToast achievements={toastAchs} onDone={() => { setToastAchs([]); drainQueue(); }} />
+      )}
+
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} testID="planning-back" style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
@@ -123,10 +158,42 @@ export default function Planning() {
           <Text style={styles.title}>PRE-PLANNING</Text>
           <Text style={styles.subtitle}>Cycle {state.cycle} · Day {day} / 7</Text>
         </View>
-        <View style={styles.iconBtn} />
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => setMiniGameOpen(true)}
+          disabled={miniPlayedToday}
+          testID="planning-minigame-btn"
+        >
+          <Text style={{ fontSize: 20, opacity: miniPlayedToday ? 0.3 : 1 }}>🎮</Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 120 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 130 }}>
+
+        {/* Daily Challenge */}
+        {ch && (
+          <View style={[styles.challengeCard, ch.completed && styles.challengeDone]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.challengeLabel}>
+                {ch.completed ? "✅ DAILY CHALLENGE — DONE!" : "🎯 DAILY CHALLENGE"}
+              </Text>
+              <Text style={styles.challengeText}>{ch.text}</Text>
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={styles.challengeReward}>+{ch.coins}c</Text>
+              <Text style={styles.challengeRewardXp}>+{ch.xp} XP</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Streak */}
+        {state.streak > 0 && (
+          <View style={styles.streakRow}>
+            <Text style={styles.streakText}>🔥 Day streak: {state.streak}</Text>
+            {state.streak >= 3 && <Text style={styles.streakBonus}>+100c bonus every 3 days!</Text>}
+          </View>
+        )}
+
         <Text style={styles.sectionLabel}>1. PICK A GENRE</Text>
         <View style={styles.genreRow}>
           {genres.map((g) => {
@@ -177,9 +244,7 @@ export default function Planning() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.artistName}>{a.name}</Text>
-                    <Text style={styles.artistMeta}>
-                      Tier {a.tier} · +{a.boost} stage boost
-                    </Text>
+                    <Text style={styles.artistMeta}>Tier {a.tier} · +{a.boost} stage boost</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
                     <View style={styles.feePill}>
@@ -200,16 +265,21 @@ export default function Planning() {
           </View>
         )}
 
+        {/* Daily News / Character Log */}
         {state.day_log.length > 0 && (
           <>
             <Text style={[styles.sectionLabel, { marginTop: 18 }]}>DAILY NEWS</Text>
-            <View style={{ gap: 6 }}>
+            <View style={{ gap: 8 }}>
               {state.day_log.slice().reverse().map((log, i) => (
-                <View key={i} style={styles.logRow} testID={`day-log-${i}`}>
-                  <Text style={styles.logDay}>D{log.day}</Text>
-                  <Text style={styles.logText}>{log.text}</Text>
-                  <Text style={styles.logReward}>+{log.coins}c · +{log.xp}xp</Text>
-                </View>
+                <CharacterBubble
+                  key={i}
+                  day={log.day}
+                  text={log.text}
+                  coins={log.coins}
+                  xp={log.xp}
+                  character_id={log.character_id}
+                  streak_bonus={log.streak_bonus}
+                />
               ))}
             </View>
           </>
@@ -217,9 +287,21 @@ export default function Planning() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
+        {/* Mini game CTA */}
+        {!isFestivalDay && (
+          <TouchableOpacity
+            style={[styles.miniGameBtn, miniPlayedToday && { opacity: 0.35 }]}
+            disabled={miniPlayedToday}
+            onPress={() => setMiniGameOpen(true)}
+            testID="planning-minigame-cta"
+          >
+            <Text style={styles.miniGameBtnText}>{miniPlayedToday ? "🎮 Played today" : "🎮 Mini Game"}</Text>
+          </TouchableOpacity>
+        )}
+
         {isFestivalDay ? (
           <TouchableOpacity
-            style={[styles.bigBtn, { backgroundColor: COLORS.primary }]}
+            style={[styles.bigBtn, { backgroundColor: COLORS.primary, flex: 1 }]}
             onPress={() => router.replace("/")}
             testID="planning-go-festival"
           >
@@ -228,7 +310,7 @@ export default function Planning() {
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.bigBtn, { backgroundColor: COLORS.surfaceElev }]}
+            style={[styles.bigBtn, { backgroundColor: COLORS.surfaceElev, flex: 1 }]}
             disabled={busy}
             onPress={endDay}
             testID="planning-end-day"
@@ -242,6 +324,12 @@ export default function Planning() {
       </View>
 
       <TutorialModal />
+
+      <MiniGameModal
+        visible={miniGameOpen}
+        onClose={() => setMiniGameOpen(false)}
+        onReward={handleMiniGameReward}
+      />
     </View>
   );
 }
@@ -261,6 +349,39 @@ const styles = StyleSheet.create({
   iconBtn: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   title: { color: COLORS.textPrimary, fontWeight: "900", letterSpacing: 4, fontSize: 14 },
   subtitle: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 1 },
+  challengeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1a2030",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: "#FFD70066",
+    gap: 8,
+  },
+  challengeDone: {
+    borderColor: "#00FF6666",
+    backgroundColor: "#001a10",
+  },
+  challengeLabel: { color: "#FFD700", fontWeight: "900", fontSize: 9, letterSpacing: 1.5, marginBottom: 2 },
+  challengeText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: "700" },
+  challengeReward: { color: COLORS.success, fontWeight: "900", fontSize: 13 },
+  challengeRewardXp: { color: COLORS.secondary, fontWeight: "700", fontSize: 11 },
+  streakRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FF990015",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#FF990044",
+  },
+  streakText: { color: "#FF9900", fontWeight: "800", fontSize: 12 },
+  streakBonus: { color: COLORS.success, fontWeight: "700", fontSize: 10 },
   sectionLabel: { color: COLORS.textSecondary, fontWeight: "800", fontSize: 11, letterSpacing: 2, marginBottom: 10 },
   genreRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   genreChip: {
@@ -279,8 +400,7 @@ const styles = StyleSheet.create({
   },
   artistAvatar: {
     width: 38, height: 38, borderRadius: 19,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1.5,
+    alignItems: "center", justifyContent: "center", borderWidth: 1.5,
   },
   artistInitial: { fontWeight: "900", fontSize: 12 },
   artistName: { color: COLORS.textPrimary, fontWeight: "700", fontSize: 14 },
@@ -293,18 +413,25 @@ const styles = StyleSheet.create({
   bookedTxt: { fontWeight: "900", fontSize: 10, marginTop: 4, letterSpacing: 1 },
   lockedTxt: { color: COLORS.warning, fontSize: 10, fontWeight: "700", marginTop: 4 },
   tapTxt: { color: COLORS.textSecondary, fontSize: 10, marginTop: 4 },
-  logRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: COLORS.surface, borderRadius: 10, padding: 10,
-  },
-  logDay: { color: COLORS.accent, fontWeight: "800", fontSize: 11, width: 28 },
-  logText: { color: COLORS.textPrimary, fontSize: 12, flex: 1 },
-  logReward: { color: COLORS.success, fontSize: 11, fontWeight: "700" },
   bottomBar: {
-    paddingHorizontal: 16, paddingTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     backgroundColor: "#0c0d15",
-    borderTopWidth: 1, borderColor: "rgba(255,255,255,0.06)",
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
   },
+  miniGameBtn: {
+    backgroundColor: COLORS.surfaceElev,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  miniGameBtnText: { color: COLORS.textPrimary, fontWeight: "800", fontSize: 12 },
   bigBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     paddingVertical: 14, borderRadius: 999,

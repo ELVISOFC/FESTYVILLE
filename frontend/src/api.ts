@@ -31,6 +31,7 @@ export const api = {
   getPlayerId,
   catalog: () => req("/catalog"),
   artists: () => req("/artists"),
+  characters: () => req("/characters"),
   state: async () => {
     const pid = await getPlayerId();
     return req(`/state/${pid}`);
@@ -67,7 +68,6 @@ export const api = {
     return res;
   },
   newSave: async () => {
-    // Generate a new player_id and store it locally
     const pid = "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
     await AsyncStorage.setItem("festyville.player_id", pid);
     await AsyncStorage.removeItem("festyville.tutorial.planning_seen");
@@ -92,6 +92,10 @@ export const api = {
   startCycle: async () => {
     const pid = await getPlayerId();
     return req(`/state/${pid}/start_cycle`, { method: "POST" });
+  },
+  minigameReward: async (game: string, score: number) => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/minigame_reward`, { method: "POST", body: JSON.stringify({ game, score }) });
   },
   leaderboard: () => req("/leaderboard"),
 };
@@ -119,6 +123,39 @@ export type Building = {
   status: "building" | "ready";
 };
 
+export type DayLogEntry = {
+  day: number;
+  text: string;
+  coins: number;
+  xp: number;
+  character_id?: string;
+  streak_bonus?: boolean;
+};
+
+export type DailyChallenge = {
+  id: string;
+  text: string;
+  target: string;
+  coins: number;
+  xp: number;
+  completed: boolean;
+};
+
+export type Achievement = {
+  id: string;
+  name: string;
+  desc: string;
+  emoji: string;
+};
+
+export type SideCharacter = {
+  id: string;
+  name: string;
+  role: string;
+  emoji: string;
+  color: string;
+};
+
 export type PlayerState = {
   player_id: string;
   name: string;
@@ -135,9 +172,14 @@ export type PlayerState = {
   day: number;
   genre: string | null;
   lineup: string[];
-  day_log: { day: number; text: string; coins: number; xp: number }[];
+  day_log: DayLogEntry[];
+  achievements: string[];
+  daily_challenge: DailyChallenge | null;
+  minigame_last: string;
+  streak: number;
   server_time: number;
-  last_event?: { day: number; text: string; coins: number; xp: number };
+  last_event?: DayLogEntry;
+  new_achievements?: Achievement[];
 };
 
 export type Artist = {
@@ -166,5 +208,12 @@ export type SimResult = {
   genre_bonus: number;
   lineup_boost: number;
   rewards: { coins: number; xp: number };
+  challenge: {
+    completed: boolean;
+    bonus_coins: number;
+    bonus_xp: number;
+    name: string | null;
+  } | null;
+  new_achievements: Achievement[];
   state: { coins: number; xp: number; level: number; phase: number; festivals_run: number; cycle: number; day: number };
 };

@@ -1,0 +1,67 @@
+modules = ["nodejs-20", "python-3.12"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+DB_NAME = "festyville"
+MONGO_URL = "mongodb://127.0.0.1:27017"
+EXPO_PUBLIC_BACKEND_URL = "https://b51dcb0a-b283-477e-957e-9ed4665e6def-00-9julwu23qt0i.riker.replit.dev:8000"
+PORT = "5000"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start Backend"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start Backend"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "mkdir -p /tmp/mongodb-data && (pgrep mongod || mongod --dbpath /tmp/mongodb-data --fork --logpath /tmp/mongod.log --bind_ip 127.0.0.1) && cd backend && MONGO_URL=mongodb://127.0.0.1:27017 DB_NAME=festyville uvicorn server:app --host localhost --port 8000 --reload"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && EXPO_PUBLIC_BACKEND_URL=https://b51dcb0a-b283-477e-957e-9ed4665e6def-00-9julwu23qt0i.riker.replit.dev:8000 npx expo start --web --port 5000"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+exposeLocalhost = true
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "mkdir -p /tmp/mongodb-data && mongod --dbpath /tmp/mongodb-data --fork --logpath /tmp/mongod.log --bind_ip 127.0.0.1 && cd backend && MONGO_URL=mongodb://127.0.0.1:27017 DB_NAME=festyville uvicorn server:app --host 0.0.0.0 --port 8000"]

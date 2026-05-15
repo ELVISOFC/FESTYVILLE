@@ -190,6 +190,9 @@ export type PlayerState = {
   minigame_last: string;
   streak: number;
   genre_affinity: { indie: number; edm: number; hiphop: number; rock: number; pop: number };
+  reputation_score: number;
+  legacy_tier: "unknown" | "local" | "regional" | "national" | "legendary";
+  genre_identity: string | null;
   server_time: number;
   last_event?: DayLogEntry;
   new_achievements?: Achievement[];

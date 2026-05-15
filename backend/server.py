@@ -261,6 +261,10 @@ class PlayerState(BaseModel):
     achievements: List[str] = []
     # Milestone ids the player has earned (each fires once, ever)
     milestone_ids: List[str] = []
+    # Legacy / reputation layer — accumulates across every festival
+    reputation_score: int = 0
+    legacy_tier: str = "unknown"
+    genre_identity: Optional[str] = None
     daily_challenge: Optional[Dict[str, Any]] = None
     minigame_last: str = ""
     streak: int = 0
@@ -323,6 +327,30 @@ def grade_from_score(score: int) -> str:
     if score >= 50: return "C"
     if score >= 35: return "D"
     return "F"
+
+# ---------- Legacy / Reputation ----------
+# Cumulative reputation thresholds → tier label. derive_tier() is monotonic:
+# once earned, a tier should not regress (reputation_score never decreases).
+LEGACY_TIERS: Dict[str, int] = {
+    "unknown":   0,
+    "local":     500,
+    "regional":  2000,
+    "national":  5000,
+    "legendary": 10000,
+}
+
+def derive_tier(score: int) -> str:
+    if score >= 10000: return "legendary"
+    if score >= 5000:  return "national"
+    if score >= 2000:  return "regional"
+    if score >= 500:   return "local"
+    return "unknown"
+
+# Star rating derived from letter grade. S=5 ★ … F=0 ★
+GRADE_STARS: Dict[str, int] = {"S": 5, "A": 4, "B": 3, "C": 2, "D": 1, "F": 0}
+
+def star_rating_for(grade: str) -> int:
+    return GRADE_STARS.get(grade, 0)
 
 def assign_daily_challenge(cycle: int) -> Dict[str, Any]:
     idx = (cycle - 1) % len(DAILY_CHALLENGES)
@@ -413,11 +441,21 @@ async def get_or_create_state(player_id: str) -> Dict[str, Any]:
         "achievements": [], "milestone_ids": [],
         "daily_challenge": None, "minigame_last": "", "streak": 0,
         "genre_affinity": {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0},
+        "reputation_score": 0, "legacy_tier": "unknown", "genre_identity": None,
     }
     missing = {k: v for k, v in defaults.items() if k not in doc}
     if missing:
         doc.update(missing)
         await db.players.update_one({"player_id": player_id}, {"$set": missing})
+
+    # If a legacy save has reputation_score but no/stale legacy_tier, derive it.
+    rep = int(doc.get("reputation_score", 0) or 0)
+    correct_tier = derive_tier(rep)
+    if doc.get("legacy_tier") != correct_tier:
+        doc["legacy_tier"] = correct_tier
+        await db.players.update_one(
+            {"player_id": player_id}, {"$set": {"legacy_tier": correct_tier}}
+        )
     if not doc.get("daily_challenge"):
         doc["daily_challenge"] = assign_daily_challenge(doc.get("cycle", 1))
         await db.players.update_one(
@@ -874,6 +912,22 @@ async def simulate(player_id: str, req: SimulateRequest):
         state.setdefault("milestone_ids", []).extend(new_ms)
         state["milestone_ids"] = list(set(state["milestone_ids"]))
 
+    # ── Reputation / Legacy layer ─────────────────────────────────────
+    # rep_gain = (stars × 100) + (composite × 0.5). Monotonic; never decreases.
+    stars = star_rating_for(grade)
+    # Min +1 so reputation strictly increases after every event, even on grade F.
+    rep_gain = max(1, int(stars * 100 + composite * 0.5))
+    state["reputation_score"] = int(state.get("reputation_score", 0)) + rep_gain
+    state["legacy_tier"] = derive_tier(state["reputation_score"])
+
+    # genre_identity = the genre the player has invested in most.
+    # Falls back to current value (or None) if all affinities are still 0.
+    aff = state.get("genre_affinity") or {}
+    if aff:
+        top_genre, top_val = max(aff.items(), key=lambda kv: kv[1])
+        if top_val > 0:
+            state["genre_identity"] = top_genre
+
     # Assign next cycle's challenge
     state["daily_challenge"] = assign_daily_challenge(state["cycle"])
 
@@ -888,6 +942,9 @@ async def simulate(player_id: str, req: SimulateRequest):
             "achievements": state["achievements"], "daily_challenge": state["daily_challenge"],
             "genre_affinity": state.get("genre_affinity", {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0}),
             "milestone_ids": state.get("milestone_ids", []),
+            "reputation_score": state.get("reputation_score", 0),
+            "legacy_tier": state.get("legacy_tier", "unknown"),
+            "genre_identity": state.get("genre_identity"),
         }}
     )
 

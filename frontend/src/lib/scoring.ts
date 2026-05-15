@@ -52,9 +52,46 @@ export type ScoreBreakdown = {
   utility_coverage: number;
   /** Weighted aesthetic score        (raw × 0.15) → 0–15  */
   aesthetic: number;
-  /** Final festival composite        0–100 (may slightly exceed with genre bonus) */
+  /** Lineup chemistry bonus          0–10 (avg pairwise genre compat × 10) */
+  chemistry_bonus: number;
+  /** Final festival composite        0–120 (with genre bonus + chemistry) */
   composite: number;
 };
+
+// ---------------------------------------------------------------------------
+// Genre chemistry — pairwise compatibility 0–1 between any two genres.
+// Symmetric: table[A][B] === table[B][A]. "pop" is reserved for future
+// artists; current 12-artist roster only uses edm/indie/hiphop/rock.
+// ---------------------------------------------------------------------------
+export const GENRE_COMPATIBILITY: Record<string, Record<string, number>> = {
+  indie:  { indie: 1.0, rock: 0.8, pop: 0.6, edm: 0.3, hiphop: 0.4 },
+  edm:    { edm: 1.0, hiphop: 0.7, pop: 0.5, indie: 0.3, rock: 0.3 },
+  hiphop: { hiphop: 1.0, edm: 0.7, pop: 0.7, indie: 0.4, rock: 0.3 },
+  rock:   { rock: 1.0, indie: 0.8, pop: 0.4, edm: 0.3, hiphop: 0.3 },
+  pop:    { pop: 1.0, indie: 0.6, hiphop: 0.7, edm: 0.5, rock: 0.4 },
+};
+
+/**
+ * computeChemistry — average pairwise genre compatibility for a lineup.
+ *
+ * Returns a 0–10 bonus value (avg × 10). Lineups with 0 or 1 artists
+ * return 0 (no pairs to compare).
+ *
+ * @param lineupGenres  Array of genre IDs (one per booked artist).
+ */
+export function computeChemistry(lineupGenres: ReadonlyArray<string>): number {
+  if (lineupGenres.length < 2) return 0;
+  let total = 0;
+  let pairs = 0;
+  for (let i = 0; i < lineupGenres.length; i++) {
+    for (let j = i + 1; j < lineupGenres.length; j++) {
+      const compat = GENRE_COMPATIBILITY[lineupGenres[i]]?.[lineupGenres[j]] ?? 0;
+      total += compat;
+      pairs++;
+    }
+  }
+  return pairs > 0 ? (total / pairs) * 10 : 0;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -115,7 +152,7 @@ export function computeScore(
   if (buildingCount === 0) {
     return {
       stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
-      utility_coverage: 0, aesthetic: 0, composite: 0,
+      utility_coverage: 0, aesthetic: 0, chemistry_bonus: 0, composite: 0,
     };
   }
 
@@ -201,6 +238,12 @@ export function computeScore(
     genreBonus = 8;  // mixed festival with 3+ distinct genres
   }
 
+  // ── Chemistry bonus (0–10 from lineup genre pairings) ─────────────────────
+  const lineupGenres = lineup
+    .map((aid) => ARTISTS_MAP[aid]?.genre)
+    .filter((g): g is string => Boolean(g));
+  const chemistryBonus = computeChemistry(lineupGenres);
+
   // ── Weighted components ───────────────────────────────────────────────────
   const wStage     = rawStage      * WEIGHTS.stage;
   const wCrowd     = rawCrowdFlow  * WEIGHTS.crowd_flow;
@@ -210,7 +253,10 @@ export function computeScore(
 
   const composite = Math.max(
     0,
-    Math.trunc(wStage + wCrowd + wVendor + wUtility + wAesthetic - penalty + genreBonus),
+    Math.trunc(
+      wStage + wCrowd + wVendor + wUtility + wAesthetic
+      - penalty + genreBonus + chemistryBonus,
+    ),
   );
 
   return {
@@ -219,6 +265,7 @@ export function computeScore(
     vendor_coverage:  wVendor,
     utility_coverage: wUtility,
     aesthetic:        wAesthetic,
+    chemistry_bonus:  chemistryBonus,
     composite,
   };
 }

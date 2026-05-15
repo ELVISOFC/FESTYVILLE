@@ -54,6 +54,7 @@ export const api = {
     vendor_coverage: number;
     utility_coverage: number;
     aesthetic: number;
+    chemistry_bonus: number;
     composite: number;
   }) => {
     const pid = await getPlayerId();
@@ -187,6 +188,7 @@ export type PlayerState = {
   daily_challenge: DailyChallenge | null;
   minigame_last: string;
   streak: number;
+  genre_affinity: { indie: number; edm: number; hiphop: number; rock: number; pop: number };
   server_time: number;
   last_event?: DayLogEntry;
   new_achievements?: Achievement[];

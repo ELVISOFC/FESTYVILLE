@@ -82,6 +82,29 @@ ARTISTS: List[Dict[str, Any]] = [
 ]
 ARTISTS_BY_ID = {a["id"]: a for a in ARTISTS}
 
+# ---------- Genre Chemistry ----------
+# Pairwise compatibility 0–1 between any two genres. Symmetric.
+# Mirrors GENRE_COMPATIBILITY in frontend/src/lib/scoring.ts — keep in sync.
+GENRE_COMPATIBILITY: Dict[str, Dict[str, float]] = {
+    "indie":  {"indie": 1.0, "rock": 0.8, "pop": 0.6, "edm": 0.3, "hiphop": 0.4},
+    "edm":    {"edm": 1.0, "hiphop": 0.7, "pop": 0.5, "indie": 0.3, "rock": 0.3},
+    "hiphop": {"hiphop": 1.0, "edm": 0.7, "pop": 0.7, "indie": 0.4, "rock": 0.3},
+    "rock":   {"rock": 1.0, "indie": 0.8, "pop": 0.4, "edm": 0.3, "hiphop": 0.3},
+    "pop":    {"pop": 1.0, "indie": 0.6, "hiphop": 0.7, "edm": 0.5, "rock": 0.4},
+}
+
+def compute_chemistry(lineup_genres: List[str]) -> float:
+    """Average pairwise genre compatibility × 10 → 0–10 bonus."""
+    if len(lineup_genres) < 2:
+        return 0.0
+    total = 0.0
+    pairs = 0
+    for i in range(len(lineup_genres)):
+        for j in range(i + 1, len(lineup_genres)):
+            total += GENRE_COMPATIBILITY.get(lineup_genres[i], {}).get(lineup_genres[j], 0.0)
+            pairs += 1
+    return (total / pairs) * 10 if pairs > 0 else 0.0
+
 # ---------- Side Characters ----------
 CHARACTERS: List[Dict[str, Any]] = [
     {"id": "sky",   "name": "Sky",   "role": "PR Manager",     "emoji": "📣", "color": "#FF9900"},
@@ -193,6 +216,11 @@ class PlayerState(BaseModel):
     daily_challenge: Optional[Dict[str, Any]] = None
     minigame_last: str = ""
     streak: int = 0
+    # Per-genre affinity 0.0–∞: accumulates 0.05 × (composite/100) every festival
+    # the player runs in that genre. Used for future bookings/events tuning.
+    genre_affinity: Dict[str, float] = Field(
+        default_factory=lambda: {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0}
+    )
     created_at: float = Field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
 
 class PlaceRequest(BaseModel):
@@ -217,7 +245,8 @@ class ScoreBreakdownIn(BaseModel):
     vendor_coverage: float = 0   # weighted 0–20
     utility_coverage: float = 0  # weighted 0–15
     aesthetic: float = 0         # weighted 0–15
-    composite: float = 0         # final 0–110
+    chemistry_bonus: float = 0   # 0–10 lineup chemistry
+    composite: float = 0         # final 0–120
 
 class SimulateRequest(BaseModel):
     client_score: ScoreBreakdownIn
@@ -334,6 +363,7 @@ async def get_or_create_state(player_id: str) -> Dict[str, Any]:
     defaults = {
         "cycle": 1, "day": 1, "genre": None, "lineup": [], "day_log": [],
         "achievements": [], "daily_challenge": None, "minigame_last": "", "streak": 0,
+        "genre_affinity": {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0},
     }
     missing = {k: v for k, v in defaults.items() if k not in doc}
     if missing:
@@ -714,6 +744,10 @@ async def simulate(player_id: str, req: SimulateRequest):
         genre_bonus = 8
         mixed_bag = True
 
+    # Chemistry bonus from lineup genre pairings (0–10)
+    lineup_genres = [ARTISTS_BY_ID[a]["genre"] for a in lineup if a in ARTISTS_BY_ID]
+    chemistry_bonus = compute_chemistry(lineup_genres)
+
     weights = {"stage": 0.30, "crowd_flow": 0.20, "vendor": 0.20, "utility": 0.15, "aesthetic": 0.15}
     composite = (
         stage_score * weights["stage"]
@@ -722,7 +756,7 @@ async def simulate(player_id: str, req: SimulateRequest):
         + utility_coverage * weights["utility"]
         + aesthetic * weights["aesthetic"]
     )
-    composite = max(0, int(composite - penalty + genre_bonus))
+    composite = max(0, int(composite - penalty + genre_bonus + chemistry_bonus))
 
     # ── Cheat-resistance: validate client-submitted score ───────────────
     # Server's composite is the authoritative value. The client's submission
@@ -756,6 +790,13 @@ async def simulate(player_id: str, req: SimulateRequest):
     state["last_grade"] = grade
     state["last_score"] = composite
     state["streak"] = 0  # Reset streak on festival run
+
+    # Accumulate genre affinity for the festival's genre.
+    # Skip "mixed" festivals (no single dominant genre to credit).
+    if festival_genre and festival_genre != "mixed":
+        state.setdefault("genre_affinity", {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0})
+        current = float(state["genre_affinity"].get(festival_genre, 0.0))
+        state["genre_affinity"][festival_genre] = current + 0.05 * (composite / 100.0)
     state["cycle"] = state.get("cycle", 1) + 1
     state["day"] = 1
     state["genre"] = None
@@ -788,6 +829,7 @@ async def simulate(player_id: str, req: SimulateRequest):
             "cycle": state["cycle"], "day": state["day"], "genre": None,
             "lineup": [], "day_log": [], "streak": 0,
             "achievements": state["achievements"], "daily_challenge": state["daily_challenge"],
+            "genre_affinity": state.get("genre_affinity", {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0}),
         }}
     )
 

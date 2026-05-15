@@ -15,7 +15,7 @@
  *  5. In-progress penalty applied   → composite = 24
  */
 
-import { computeScore } from "./scoring";
+import { computeScore, computeChemistry, GENRE_COMPATIBILITY } from "./scoring";
 import type { ScoreBreakdown } from "./scoring";
 import type { Building, CatalogItem } from "../api";
 
@@ -88,6 +88,7 @@ test("TC2 single ready stage with no extras returns composite 9", () => {
   expect(result.vendor_coverage).toBe(0);
   expect(result.utility_coverage).toBe(0);
   expect(result.aesthetic).toBe(0);
+  expect(result.chemistry_bonus).toBe(0); // empty lineup → no chemistry
   expect(result.composite).toBe(9);
 
   expectNearServer(result, 9);
@@ -109,10 +110,11 @@ test("TC2 single ready stage with no extras returns composite 9", () => {
 //   rawAesthetic = min(100, 20×6) = 100  (art_statue score=20)
 //   genreBonus = 10 (pure EDM, all 3 artists match)
 //   penalty    = 0
-//   composite  = trunc(30+20+20+15+15 + 10) = 110
+//   chemistry  = avg(edm-edm × 3 pairs) = 1.0 → bonus 10
+//   composite  = trunc(30+20+20+15+15 + 10 + 10) = 120
 //
 // Requirement: composite ≥ 90  ✓
-// Expected composite (server): 110
+// Expected composite (server): 120
 // ---------------------------------------------------------------------------
 test("TC3 perfect festival with pure-EDM lineup returns composite >= 90 and matches server", () => {
   const buildings = [
@@ -134,8 +136,9 @@ test("TC3 perfect festival with pure-EDM lineup returns composite >= 90 and matc
   expect(result.vendor_coverage).toBeCloseTo(20, 1);   // 100 × 0.20
   expect(result.utility_coverage).toBeCloseTo(15, 1);  // 100 × 0.15
   expect(result.aesthetic).toBeCloseTo(15, 1);          // 100 × 0.15
+  expect(result.chemistry_bonus).toBeCloseTo(10, 5);   // pure EDM → max chemistry
 
-  expectNearServer(result, 110); // server returns 110
+  expectNearServer(result, 120); // server returns 120 (incl. chemistry)
 });
 
 // ---------------------------------------------------------------------------
@@ -155,11 +158,12 @@ test("TC3 perfect festival with pure-EDM lineup returns composite >= 90 and matc
 //   rawAesthetic = 0
 //   genreBonus = 8 (mixed, 3+ distinct genres in lineup)
 //   penalty    = 0
-//   composite  = trunc(54×.30 + 100×.20 + 66×.20 + 100×.15 + 0×.15 + 8)
-//              = trunc(16.2 + 20 + 13.2 + 15 + 0 + 8)
-//              = trunc(72.4) = 72
+//   chemistry  = avg(edm-indie 0.3, edm-hiphop 0.7, indie-hiphop 0.4) = 0.467 → 4.67
+//   composite  = trunc(54×.30 + 100×.20 + 66×.20 + 100×.15 + 0×.15 + 8 + 4.67)
+//              = trunc(16.2 + 20 + 13.2 + 15 + 0 + 8 + 4.67)
+//              = trunc(77.07) = 77
 //
-// Expected composite (server): 72  →  mid-range ✓
+// Expected composite (server): 77  →  mid-range ✓
 // ---------------------------------------------------------------------------
 test("TC4 mixed-genre festival with 3 genres returns mid-range composite and matches server", () => {
   const buildings = [
@@ -173,9 +177,12 @@ test("TC4 mixed-genre festival with 3 genres returns mid-range composite and mat
   const result = computeScore(buildings, lineup, "mixed", CATALOG);
 
   expect(result.composite).toBeGreaterThan(40);
-  expect(result.composite).toBeLessThan(85);
+  expect(result.composite).toBeLessThan(90);
+  // Chemistry: avg(0.3 + 0.7 + 0.4) / 3 × 10 ≈ 4.67
+  expect(result.chemistry_bonus).toBeGreaterThan(4);
+  expect(result.chemistry_bonus).toBeLessThan(5);
 
-  expectNearServer(result, 72);
+  expectNearServer(result, 77);
 });
 
 // ---------------------------------------------------------------------------
@@ -207,4 +214,52 @@ test("TC5 in-progress buildings apply penalty and match server", () => {
   expect(result.composite).toBe(24);
 
   expectNearServer(result, 24);
+});
+
+// ---------------------------------------------------------------------------
+// Test 6 — Two same-genre artists must produce chemistry_bonus > 7
+// (per spec: "Two same-genre artists produce chemistry_bonus > 7")
+// EDM + EDM → 1 pair × 1.0 = avg 1.0 → bonus 10
+// ---------------------------------------------------------------------------
+test("TC6 two same-genre artists produce chemistry_bonus > 7", () => {
+  const sameGenrePairs = [
+    ["glow_riot", "pulse_drop"],   // edm + edm
+    ["velvet_echo", "paper_lant"], // indie + indie
+    ["blk_captain", "verse_808"],  // hiphop + hiphop
+    ["river_holw", "ember_trail"], // rock + rock
+  ];
+  for (const lineup of sameGenrePairs) {
+    const buildings = [makeBuilding("stage_small", 0, 0)];
+    const result = computeScore(buildings, lineup, null, CATALOG);
+    expect(result.chemistry_bonus).toBeGreaterThan(7);
+    expect(result.chemistry_bonus).toBeCloseTo(10, 5);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Test 7 — computeChemistry standalone & GENRE_COMPATIBILITY symmetry
+// Validates the lookup table is symmetric and that the avg-pairwise math
+// produces the expected values for known inputs.
+// ---------------------------------------------------------------------------
+test("TC7 computeChemistry math + GENRE_COMPATIBILITY symmetry", () => {
+  // 0–1 artists → no pairs → 0
+  expect(computeChemistry([])).toBe(0);
+  expect(computeChemistry(["edm"])).toBe(0);
+
+  // Pure same-genre → 10
+  expect(computeChemistry(["edm", "edm"])).toBeCloseTo(10, 5);
+  expect(computeChemistry(["edm", "edm", "edm"])).toBeCloseTo(10, 5);
+
+  // edm + indie → 0.3 → 3
+  expect(computeChemistry(["edm", "indie"])).toBeCloseTo(3, 5);
+  // edm + hiphop → 0.7 → 7
+  expect(computeChemistry(["edm", "hiphop"])).toBeCloseTo(7, 5);
+
+  // Symmetry: table[A][B] === table[B][A] for every defined pair
+  const genres = Object.keys(GENRE_COMPATIBILITY);
+  for (const a of genres) {
+    for (const b of genres) {
+      expect(GENRE_COMPATIBILITY[a][b]).toBe(GENRE_COMPATIBILITY[b][a]);
+    }
+  }
 });

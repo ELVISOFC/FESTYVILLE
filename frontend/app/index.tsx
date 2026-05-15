@@ -47,7 +47,7 @@ export default function Index() {
   const [simAnimating, setSimAnimating] = useState(false);
   const [simBreakdown, setSimBreakdown] = useState<ScoreBreakdown>({
     stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
-    utility_coverage: 0, aesthetic: 0, composite: 0,
+    utility_coverage: 0, aesthetic: 0, chemistry_bonus: 0, composite: 0,
   });
   const pendingResultRef = useRef<SimResult | null>(null);
   const [loading, setLoading] = useState(true);

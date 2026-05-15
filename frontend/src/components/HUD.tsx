@@ -28,7 +28,7 @@ export default function HUD(props: Props) {
     <View style={styles.wrap}>
       <View style={styles.row}>
         <TouchableOpacity onPress={onOpenMenu} style={[styles.pill, styles.iconBtn]} testID="hud-open-menu">
-          <Ionicons name="menu" size={18} color={COLORS.textPrimary} />
+          <Ionicons name="menu" size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Pill icon="cash" color={COLORS.accent} label={formatNum(coins)} testID="hud-coin-balance" />
         <Pill icon="flash" color={COLORS.secondary} label={`${xp} XP`} testID="hud-xp-balance" />
@@ -40,16 +40,16 @@ export default function HUD(props: Props) {
           testID="hud-active-builds"
         />
         <TouchableOpacity onPress={onOpenLeaderboard} style={[styles.pill, styles.iconBtn]} testID="hud-open-leaderboard">
-          <Ionicons name="podium" size={16} color={COLORS.accent} />
+          <Ionicons name="podium" size={18} color={COLORS.accent} />
         </TouchableOpacity>
       </View>
-      <View style={[styles.row, { marginTop: 6 }]}>
+      <View style={[styles.row, { marginTop: 8 }]}>
         <TouchableOpacity
           style={[styles.pill, { borderColor: dayColor + "AA" }]}
           onPress={onOpenPlanning}
           testID="hud-day-chip"
         >
-          <Ionicons name="calendar" size={14} color={dayColor} style={{ marginRight: 6 }} />
+          <Ionicons name="calendar" size={16} color={dayColor} style={{ marginRight: 6 }} />
           <Text style={styles.pillText}>
             C{cycle} · Day {day}/7
           </Text>
@@ -59,7 +59,7 @@ export default function HUD(props: Props) {
           onPress={onOpenPlanning}
           testID="hud-genre-chip"
         >
-          <Ionicons name="musical-notes" size={14} color={genre ? (GENRE_TINT[genre] || COLORS.accent) : COLORS.textSecondary} style={{ marginRight: 6 }} />
+          <Ionicons name="musical-notes" size={16} color={genre ? (GENRE_TINT[genre] || COLORS.accent) : COLORS.textSecondary} style={{ marginRight: 6 }} />
           <Text style={[styles.pillText, !genre && { color: COLORS.textSecondary, fontStyle: "italic" }]}>
             {genre ? genre.toUpperCase() : "Pick genre"}
           </Text>
@@ -69,7 +69,7 @@ export default function HUD(props: Props) {
           onPress={onOpenPlanning}
           testID="hud-open-planning"
         >
-          <Ionicons name="albums" size={14} color={COLORS.secondary} />
+          <Ionicons name="albums" size={16} color={COLORS.secondary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -79,7 +79,7 @@ export default function HUD(props: Props) {
 function Pill({ icon, color, label, testID }: { icon: any; color: string; label: string; testID?: string }) {
   return (
     <View style={styles.pill} testID={testID}>
-      <Ionicons name={icon} size={14} color={color} style={{ marginRight: 6 }} />
+      <Ionicons name={icon} size={16} color={color} style={{ marginRight: 6 }} />
       <Text style={styles.pillText}>{label}</Text>
     </View>
   );
@@ -92,14 +92,20 @@ function formatNum(n: number) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 8 },
-  row: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  wrap: { paddingHorizontal: 12, alignItems: "center" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   pill: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
   },
-  pillText: { color: COLORS.textPrimary, fontWeight: "800", fontSize: 13, letterSpacing: 0.5 },
-  iconBtn: { paddingHorizontal: 10 },
+  pillText: { color: COLORS.textPrimary, fontWeight: "800", fontSize: 15, letterSpacing: 0.5 },
+  iconBtn: { paddingHorizontal: 12 },
 });

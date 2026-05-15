@@ -403,7 +403,8 @@ const styles = StyleSheet.create({
   bottomBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    gap: 16,
     paddingHorizontal: 16,
     paddingTop: 12,
     backgroundColor: "#0c0d15",
@@ -425,7 +426,7 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontWeight: "900",
     letterSpacing: 2,
-    fontSize: 13,
+    fontSize: 15,
   },
   runBtn: {
     flexDirection: "row",
@@ -444,6 +445,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "900",
     letterSpacing: 3,
-    fontSize: 14,
+    fontSize: 16,
   },
 });

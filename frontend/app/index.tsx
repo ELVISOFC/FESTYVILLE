@@ -24,6 +24,8 @@ import BuildingSprite from "../src/components/BuildingSprite";
 import ConstructionTimer from "../src/components/ConstructionTimer";
 import SimulationModal from "../src/components/SimulationModal";
 import SimulationOverlay from "../src/components/SimulationOverlay";
+import TierUpgradeModal from "../src/components/TierUpgradeModal";
+import type { LegacyTier } from "../src/legacy";
 
 function alertOrLog(title: string, msg: string) {
   if (Platform.OS === "web") {
@@ -44,6 +46,14 @@ export default function Index() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [simResult, setSimResult] = useState<SimResult | null>(null);
   const [simOpen, setSimOpen] = useState(false);
+  // Tier upgrade is shown FIRST (full-screen) before the normal results modal,
+  // so the new tier feels like a milestone and not a footnote.
+  const [tierUpgradeOpen, setTierUpgradeOpen] = useState(false);
+  const [pendingTierUpgrade, setPendingTierUpgrade] = useState<{
+    from: LegacyTier;
+    to: LegacyTier;
+    reputation_score: number;
+  } | null>(null);
   const [simAnimating, setSimAnimating] = useState(false);
   const [simBreakdown, setSimBreakdown] = useState<ScoreBreakdown>({
     stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
@@ -221,10 +231,27 @@ export default function Index() {
   const handleAnimationComplete = () => {
     setSimAnimating(false);
     const r = pendingResultRef.current;
-    if (r) {
-      setSimResult(r);
+    if (!r) return;
+    setSimResult(r);
+    // If the player crossed a tier this run, celebrate it BEFORE the normal
+    // results modal — it's the headline event of the session.
+    if (r.tier_upgrade && r.tier_upgrade.to !== r.tier_upgrade.from) {
+      setPendingTierUpgrade({
+        from: r.tier_upgrade.from as LegacyTier,
+        to: r.tier_upgrade.to as LegacyTier,
+        reputation_score: r.tier_upgrade.reputation_score,
+      });
+      setTierUpgradeOpen(true);
+    } else {
       setSimOpen(true);
     }
+  };
+
+  const handleTierUpgradeClose = () => {
+    setTierUpgradeOpen(false);
+    setPendingTierUpgrade(null);
+    // Then surface the regular results card.
+    setSimOpen(true);
   };
 
   if (loading || !state) {
@@ -258,6 +285,7 @@ export default function Index() {
           onOpenLeaderboard={() => router.push("/leaderboard")}
           onOpenPlanning={() => router.push("/planning")}
           onOpenMenu={() => router.push("/menu")}
+          onOpenLegacy={() => router.push("/legacy")}
         />
         {state.day >= 7 ? (
           <Text style={[styles.lastResult, { color: COLORS.primary }]} testID="festival-day-banner">
@@ -379,6 +407,13 @@ export default function Index() {
         catalog={catalog}
         scoreBreakdown={simBreakdown}
         onComplete={handleAnimationComplete}
+      />
+      <TierUpgradeModal
+        visible={tierUpgradeOpen}
+        fromTier={pendingTierUpgrade?.from ?? null}
+        toTier={pendingTierUpgrade?.to ?? null}
+        reputationScore={pendingTierUpgrade?.reputation_score ?? 0}
+        onClose={handleTierUpgradeClose}
       />
       <SimulationModal
         visible={simOpen}

@@ -15,6 +15,7 @@ type Props = {
   onOpenLeaderboard: () => void;
   onOpenPlanning: () => void;
   onOpenMenu: () => void;
+  onOpenLegacy: () => void;
 };
 
 const GENRE_TINT: Record<string, string> = {
@@ -22,7 +23,7 @@ const GENRE_TINT: Record<string, string> = {
 };
 
 export default function HUD(props: Props) {
-  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, onOpenLeaderboard, onOpenPlanning, onOpenMenu } = props;
+  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
   const dayColor = day >= 7 ? COLORS.primary : day === 1 ? COLORS.warning : COLORS.accent;
   return (
     <View style={styles.wrap}>
@@ -39,6 +40,10 @@ export default function HUD(props: Props) {
           label={`${activeBuilds}`}
           testID="hud-active-builds"
         />
+        <TouchableOpacity onPress={onOpenLegacy} style={styles.pill} testID="hud-open-legacy">
+          <Ionicons name="ribbon" size={16} color={COLORS.primary} style={{ marginRight: 6 }} />
+          <Text style={[styles.pillText, { color: COLORS.primary }]}>LEGACY</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={onOpenLeaderboard} style={[styles.pill, styles.iconBtn]} testID="hud-open-leaderboard">
           <Ionicons name="podium" size={18} color={COLORS.accent} />
         </TouchableOpacity>

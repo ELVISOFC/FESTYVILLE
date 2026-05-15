@@ -74,6 +74,8 @@ export default function Index() {
     setState(s as PlayerState);
   }, []);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     (async () => {
       try {
@@ -82,8 +84,10 @@ export default function Index() {
         setGridSize(c.grid_size);
         setState(s as PlayerState);
       } catch (e: any) {
-        Analytics.errorOccurred("load_failed", e.message || String(e), "index_init");
-        alertOrLog("Connection Error", e.message || String(e));
+        const msg = e?.message || String(e);
+        Analytics.errorOccurred("load_failed", msg, "index_init");
+        setLoadError(msg);
+        alertOrLog("Connection Error", msg);
       } finally {
         setLoading(false);
       }
@@ -256,11 +260,28 @@ export default function Index() {
 
   if (loading || !state) {
     return (
-      <View style={[styles.center, { backgroundColor: COLORS.bg }]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={{ color: COLORS.textSecondary, marginTop: 12, letterSpacing: 2 }}>
-          LOADING FESTIVAL...
-        </Text>
+      <View style={[styles.center, { backgroundColor: COLORS.bg, padding: 24 }]}>
+        {loadError ? (
+          <>
+            <Text style={{ color: COLORS.primary, fontSize: 16, fontWeight: "700", letterSpacing: 2, marginBottom: 8 }}>
+              SIGN-IN FAILED
+            </Text>
+            <Text style={{ color: COLORS.textSecondary, textAlign: "center", maxWidth: 480, lineHeight: 20 }}>
+              {loadError}
+            </Text>
+            <Text style={{ color: COLORS.textSecondary, marginTop: 16, textAlign: "center", maxWidth: 480, fontSize: 12 }}>
+              If this is "auth/admin-restricted-operation" or HTTP 400, enable Anonymous sign-in:
+              {"\n"}Firebase Console → Authentication → Sign-in method → Anonymous → Enable
+            </Text>
+          </>
+        ) : (
+          <>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={{ color: COLORS.textSecondary, marginTop: 12, letterSpacing: 2 }}>
+              LOADING FESTIVAL...
+            </Text>
+          </>
+        )}
       </View>
     );
   }

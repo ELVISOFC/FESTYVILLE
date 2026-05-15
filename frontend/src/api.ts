@@ -1,21 +1,90 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { signInAnonymously, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { getFirebaseAuth } from "./firebase";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-async function getPlayerId(): Promise<string> {
-  let pid = await AsyncStorage.getItem("festyville.player_id");
-  if (!pid) {
-    pid = "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    await AsyncStorage.setItem("festyville.player_id", pid);
-  }
-  return pid;
+let _userPromise: Promise<User> | null = null;
+let _cachedToken: { token: string; expiresAt: number } | null = null;
+
+function waitForUser(): Promise<User> {
+  if (_userPromise) return _userPromise;
+  const p = new Promise<User>((resolve, reject) => {
+    const auth = getFirebaseAuth();
+    const unsub = onAuthStateChanged(
+      auth,
+      async (user) => {
+        if (user) {
+          unsub();
+          resolve(user);
+          return;
+        }
+        try {
+          const cred = await signInAnonymously(auth);
+          unsub();
+          resolve(cred.user);
+        } catch (e) {
+          unsub();
+          reject(e);
+        }
+      },
+      (err) => {
+        unsub();
+        reject(err);
+      }
+    );
+  });
+  // Reset the cache on failure so subsequent calls can retry instead of
+  // permanently returning the rejected promise.
+  p.catch(() => {
+    if (_userPromise === p) _userPromise = null;
+  });
+  _userPromise = p;
+  return p;
 }
 
-async function req(path: string, opts: RequestInit = {}) {
-  const res = await fetch(`${BASE}/api${path}`, {
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-    ...opts,
-  });
+async function getPlayerId(): Promise<string> {
+  const user = await waitForUser();
+  return user.uid;
+}
+
+async function getIdToken(forceRefresh = false): Promise<string> {
+  const now = Date.now();
+  if (!forceRefresh && _cachedToken && _cachedToken.expiresAt > now + 60_000) {
+    return _cachedToken.token;
+  }
+  const user = await waitForUser();
+  const token = await user.getIdToken(forceRefresh);
+  // Firebase ID tokens are valid for 1 hour. Cache for 50 minutes.
+  _cachedToken = { token, expiresAt: now + 50 * 60 * 1000 };
+  return token;
+}
+
+function clearAuthCache() {
+  _userPromise = null;
+  _cachedToken = null;
+}
+
+async function req(path: string, opts: RequestInit = {}, requireAuth = true) {
+  const needsAuth = requireAuth && path.startsWith("/state/");
+  const doFetch = async (forceRefresh: boolean) => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...((opts.headers as Record<string, string>) || {}),
+    };
+    if (needsAuth) {
+      const token = await getIdToken(forceRefresh);
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return fetch(`${BASE}/api${path}`, { ...opts, headers });
+  };
+
+  let res = await doFetch(false);
+  if (res.status === 401 && needsAuth) {
+    // Token may be stale/expired — drop cache and retry once with a fresh one.
+    _cachedToken = null;
+    res = await doFetch(true);
+  }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
     try {
@@ -29,9 +98,9 @@ async function req(path: string, opts: RequestInit = {}) {
 
 export const api = {
   getPlayerId,
-  catalog: () => req("/catalog"),
-  artists: () => req("/artists"),
-  characters: () => req("/characters"),
+  catalog: () => req("/catalog", {}, false),
+  artists: () => req("/artists", {}, false),
+  characters: () => req("/characters", {}, false),
   state: async () => {
     const pid = await getPlayerId();
     return req(`/state/${pid}`);
@@ -74,14 +143,21 @@ export const api = {
   deleteSave: async () => {
     const pid = await getPlayerId();
     const res = await req(`/state/${pid}/delete`, { method: "POST" });
-    await AsyncStorage.removeItem("festyville.player_id");
     await AsyncStorage.removeItem("festyville.tutorial.planning_seen");
+    try {
+      await signOut(getFirebaseAuth());
+    } catch {}
+    clearAuthCache();
     return res;
   },
   newSave: async () => {
-    const pid = "p_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    await AsyncStorage.setItem("festyville.player_id", pid);
+    // Sign out the current anonymous user and let waitForUser create a fresh one.
+    try {
+      await signOut(getFirebaseAuth());
+    } catch {}
+    clearAuthCache();
     await AsyncStorage.removeItem("festyville.tutorial.planning_seen");
+    const pid = await getPlayerId();
     return req(`/state/${pid}`);
   },
   setGenre: async (genre: string) => {
@@ -108,7 +184,7 @@ export const api = {
     const pid = await getPlayerId();
     return req(`/state/${pid}/minigame_reward`, { method: "POST", body: JSON.stringify({ game, score }) });
   },
-  leaderboard: () => req("/leaderboard"),
+  leaderboard: () => req("/leaderboard", {}, false),
 };
 
 export type CatalogItem = {

@@ -1,5 +1,5 @@
 """FestyVille backend - Festival Tycoon prototype API."""
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -12,6 +12,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
+from google.oauth2 import id_token as g_id_token
+from google.auth.transport import requests as g_requests
+from google.auth.exceptions import GoogleAuthError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,6 +28,44 @@ api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("festyville")
+
+# ---------- Firebase ID-token verification ----------
+FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")
+AUTH_DISABLED = os.environ.get("FESTYVILLE_AUTH_DISABLED") == "1"
+_g_request = g_requests.Request()
+
+if not FIREBASE_PROJECT_ID and not AUTH_DISABLED:
+    raise RuntimeError(
+        "FIREBASE_PROJECT_ID env var is required when auth is enabled. "
+        "Set it to your Firebase project ID, or set FESTYVILLE_AUTH_DISABLED=1 to bypass auth (dev only)."
+    )
+
+
+async def require_player(
+    player_id: str,
+    authorization: Optional[str] = Header(None),
+) -> str:
+    """Verify the Firebase ID token in the Authorization header and ensure its
+    UID matches the path's player_id. Returns the verified UID."""
+    if AUTH_DISABLED:
+        return player_id
+    # Defensive: never call verify with audience=None (would skip audience check
+    # and accept tokens from any Firebase project).
+    if not FIREBASE_PROJECT_ID:
+        raise HTTPException(503, "Auth not configured on server")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Missing or malformed Authorization header")
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        decoded = g_id_token.verify_firebase_token(token, _g_request, audience=FIREBASE_PROJECT_ID)
+    except (ValueError, GoogleAuthError) as e:
+        raise HTTPException(401, f"Invalid Firebase ID token: {e}")
+    uid = decoded.get("sub") or decoded.get("user_id")
+    if not uid:
+        raise HTTPException(401, "Token missing subject claim")
+    if uid != player_id:
+        raise HTTPException(403, "Token UID does not match player_id")
+    return uid
 
 # ---------- Catalog ----------
 CATALOG: List[Dict[str, Any]] = [
@@ -483,7 +524,7 @@ async def get_artists():
 async def get_characters():
     return {"characters": CHARACTERS, "achievements": ACHIEVEMENTS}
 
-@api_router.post("/state/{player_id}/set_genre")
+@api_router.post("/state/{player_id}/set_genre", dependencies=[Depends(require_player)])
 async def set_genre(player_id: str, body: Dict[str, str]):
     state = await get_or_create_state(player_id)
     genre = (body.get("genre") or "").strip()
@@ -499,7 +540,7 @@ async def set_genre(player_id: str, body: Dict[str, str]):
     state["server_time"] = now_ts()
     return state
 
-@api_router.post("/state/{player_id}/book_artist")
+@api_router.post("/state/{player_id}/book_artist", dependencies=[Depends(require_player)])
 async def book_artist(player_id: str, body: Dict[str, str]):
     state = await get_or_create_state(player_id)
     aid = body.get("artist_id", "")
@@ -530,7 +571,7 @@ async def book_artist(player_id: str, body: Dict[str, str]):
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
-@api_router.post("/state/{player_id}/unbook_artist")
+@api_router.post("/state/{player_id}/unbook_artist", dependencies=[Depends(require_player)])
 async def unbook_artist(player_id: str, body: Dict[str, str]):
     state = await get_or_create_state(player_id)
     aid = body.get("artist_id", "")
@@ -547,7 +588,7 @@ async def unbook_artist(player_id: str, body: Dict[str, str]):
     state["server_time"] = now_ts()
     return state
 
-@api_router.post("/state/{player_id}/advance_day")
+@api_router.post("/state/{player_id}/advance_day", dependencies=[Depends(require_player)])
 async def advance_day(player_id: str):
     state = await get_or_create_state(player_id)
     if state["day"] >= DAYS_PER_CYCLE:
@@ -603,7 +644,7 @@ async def advance_day(player_id: str):
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
-@api_router.post("/state/{player_id}/minigame_reward")
+@api_router.post("/state/{player_id}/minigame_reward", dependencies=[Depends(require_player)])
 async def minigame_reward(player_id: str, body: Dict[str, Any]):
     state = await get_or_create_state(player_id)
     game = body.get("game", "sound_check")
@@ -667,7 +708,7 @@ async def minigame_reward(player_id: str, body: Dict[str, Any]):
         "new_achievements": state.get("new_achievements", []),
     }
 
-@api_router.post("/state/{player_id}/start_cycle")
+@api_router.post("/state/{player_id}/start_cycle", dependencies=[Depends(require_player)])
 async def start_cycle(player_id: str):
     state = await get_or_create_state(player_id)
     state["cycle"] = state.get("cycle", 1) + 1
@@ -686,13 +727,13 @@ async def start_cycle(player_id: str):
     state["server_time"] = now_ts()
     return state
 
-@api_router.get("/state/{player_id}")
+@api_router.get("/state/{player_id}", dependencies=[Depends(require_player)])
 async def get_state(player_id: str):
     state = await get_or_create_state(player_id)
     state["server_time"] = now_ts()
     return state
 
-@api_router.post("/state/{player_id}/place")
+@api_router.post("/state/{player_id}/place", dependencies=[Depends(require_player)])
 async def place_building(player_id: str, req: PlaceRequest):
     state = await get_or_create_state(player_id)
     item = CATALOG_BY_ID.get(req.catalog_id)
@@ -732,7 +773,7 @@ async def place_building(player_id: str, req: PlaceRequest):
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
-@api_router.post("/state/{player_id}/speedup")
+@api_router.post("/state/{player_id}/speedup", dependencies=[Depends(require_player)])
 async def speedup(player_id: str, req: SpeedupRequest):
     state = await get_or_create_state(player_id)
     target = next((b for b in state["buildings"] if b["id"] == req.building_id), None)
@@ -761,7 +802,7 @@ async def speedup(player_id: str, req: SpeedupRequest):
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return state
 
-@api_router.post("/state/{player_id}/demolish")
+@api_router.post("/state/{player_id}/demolish", dependencies=[Depends(require_player)])
 async def demolish(player_id: str, req: SpeedupRequest):
     state = await get_or_create_state(player_id)
     before = len(state["buildings"])
@@ -775,7 +816,7 @@ async def demolish(player_id: str, req: SpeedupRequest):
     state["server_time"] = now_ts()
     return state
 
-@api_router.post("/state/{player_id}/simulate")
+@api_router.post("/state/{player_id}/simulate", dependencies=[Depends(require_player)])
 async def simulate(player_id: str, req: SimulateRequest):
     state = await get_or_create_state(player_id)
     ready = [b for b in state["buildings"] if b["status"] == "ready"]
@@ -1008,7 +1049,7 @@ async def simulate(player_id: str, req: SimulateRequest):
         },
     }
 
-@api_router.post("/state/{player_id}/reset")
+@api_router.post("/state/{player_id}/reset", dependencies=[Depends(require_player)])
 async def reset_player(player_id: str):
     fresh = PlayerState(player_id=player_id).model_dump()
     existing = await db.players.find_one({"player_id": player_id}, {"_id": 0, "name": 1})
@@ -1021,12 +1062,12 @@ async def reset_player(player_id: str):
     fresh["server_time"] = now_ts()
     return fresh
 
-@api_router.post("/state/{player_id}/delete")
+@api_router.post("/state/{player_id}/delete", dependencies=[Depends(require_player)])
 async def delete_player(player_id: str):
     await db.players.delete_one({"player_id": player_id})
     return {"ok": True, "player_id": player_id}
 
-@api_router.post("/state/{player_id}/rename")
+@api_router.post("/state/{player_id}/rename", dependencies=[Depends(require_player)])
 async def rename(player_id: str, body: Dict[str, str]):
     name = (body.get("name") or "").strip()[:20]
     if not name:

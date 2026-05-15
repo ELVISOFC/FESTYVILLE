@@ -1,6 +1,9 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getAnalytics, isSupported as analyticsSupported, Analytics } from "firebase/analytics";
 import { getRemoteConfig, RemoteConfig } from "firebase/remote-config";
+import { getAuth, initializeAuth, Auth } from "firebase/auth";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -13,6 +16,31 @@ const firebaseConfig = {
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+
+let authInstance: Auth | null = null;
+
+export function getFirebaseAuth(): Auth {
+  if (authInstance) return authInstance;
+  if (Platform.OS === "web") {
+    authInstance = getAuth(app);
+  } else {
+    try {
+      // React Native needs explicit AsyncStorage persistence; getReactNativePersistence
+      // is exported at runtime but missing from current type defs.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getReactNativePersistence } = require("firebase/auth") as {
+        getReactNativePersistence: (s: typeof AsyncStorage) => unknown;
+      };
+      authInstance = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage) as never,
+      });
+    } catch {
+      // Already initialised (e.g. hot reload) — fall back.
+      authInstance = getAuth(app);
+    }
+  }
+  return authInstance;
+}
 
 let analyticsInstance: Analytics | null = null;
 let remoteConfigInstance: RemoteConfig | null = null;

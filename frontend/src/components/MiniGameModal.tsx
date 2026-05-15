@@ -295,7 +295,7 @@ function RhythmRush({
   const accuracy = totalNotes > 0 ? Math.round((hits / Math.max(1, hits + misses)) * 100) : 0;
 
   return (
-    <View style={{ padding: 12, alignItems: "center" }}>
+    <ScrollView contentContainerStyle={{ padding: 12, alignItems: "center" }}>
       <Text style={styles.gameTitle}>🎸 RHYTHM RUSH</Text>
       <Text style={styles.roundLabel}>
         {phase === "idle"
@@ -376,7 +376,7 @@ function RhythmRush({
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -420,7 +420,7 @@ function SponsorRoulette({
   const shuffled = useRef([...SPONSORS].sort(() => Math.random() - 0.5)).current;
 
   return (
-    <View style={{ padding: 16, alignItems: "center" }}>
+    <ScrollView contentContainerStyle={{ padding: 16, alignItems: "center" }}>
       <Text style={styles.gameTitle}>🃏 SPONSOR ROULETTE</Text>
       <Text style={styles.roundLabel}>
         {picked === null ? "Pick a sponsor card to reveal your deal" : revealed ? "Deal revealed!" : "Flipping..."}
@@ -476,7 +476,7 @@ function SponsorRoulette({
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -610,7 +610,7 @@ function StageSweep({
   };
 
   return (
-    <View style={{ padding: 16, alignItems: "center" }}>
+    <ScrollView contentContainerStyle={{ padding: 16, alignItems: "center" }}>
       <Text style={styles.gameTitle}>⛈️ STAGE SWEEP</Text>
       <Text style={styles.roundLabel}>
         {phase === "idle"
@@ -695,7 +695,7 @@ function StageSweep({
           </TouchableOpacity>
         </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 

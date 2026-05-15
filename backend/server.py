@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("festyville")
 
 # ---------- Firebase ID-token verification ----------
-FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")
+FIREBASE_PROJECT_ID = (os.environ.get("FIREBASE_PROJECT_ID") or "").strip().strip('"').strip("'") or None
 AUTH_DISABLED = os.environ.get("FESTYVILLE_AUTH_DISABLED") == "1"
 _g_request = g_requests.Request()
 

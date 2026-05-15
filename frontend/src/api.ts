@@ -65,6 +65,56 @@ function clearAuthCache() {
   _cachedToken = null;
 }
 
+// ---------- Offline-first cache ----------
+const STATE_CACHE_PREFIX = "fv_state:";
+const CATALOG_CACHE_KEY = "fv_catalog";
+
+function isPlayerStateLike(d: any): boolean {
+  return !!(d && typeof d === "object" && typeof d.player_id === "string" && Array.isArray(d.buildings));
+}
+
+async function persistStateIfApplicable(data: any) {
+  if (!isPlayerStateLike(data)) return;
+  try {
+    await AsyncStorage.setItem(STATE_CACHE_PREFIX + data.player_id, JSON.stringify(data));
+  } catch {}
+}
+
+async function persistCatalogIfApplicable(path: string, data: any) {
+  if (path !== "/catalog" || !data || typeof data !== "object" || !Array.isArray(data.catalog)) return;
+  try {
+    await AsyncStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+export async function loadCachedState(): Promise<PlayerState | null> {
+  try {
+    const pid = await getPlayerId();
+    const raw = await AsyncStorage.getItem(STATE_CACHE_PREFIX + pid);
+    return raw ? (JSON.parse(raw) as PlayerState) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCachedCatalog(): Promise<{ catalog: CatalogItem[]; grid_size: number } | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CATALOG_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function clearCachedStateForCurrentUser() {
+  try {
+    const raw = _cachedToken; // best-effort; just attempt with the current uid
+    const u = await waitForUser().catch(() => null);
+    if (u) await AsyncStorage.removeItem(STATE_CACHE_PREFIX + u.uid);
+    void raw;
+  } catch {}
+}
+
 async function req(path: string, opts: RequestInit = {}, requireAuth = true) {
   const needsAuth = requireAuth && path.startsWith("/state/");
   const doFetch = async (forceRefresh: boolean) => {
@@ -93,7 +143,11 @@ async function req(path: string, opts: RequestInit = {}, requireAuth = true) {
     } catch {}
     throw new Error(msg);
   }
-  return res.json();
+  const data = await res.json();
+  // Fire-and-forget cache writes; never let cache I/O block the response.
+  void persistStateIfApplicable(data);
+  void persistCatalogIfApplicable(path, data);
+  return data;
 }
 
 export const api = {
@@ -143,7 +197,10 @@ export const api = {
   deleteSave: async () => {
     const pid = await getPlayerId();
     const res = await req(`/state/${pid}/delete`, { method: "POST" });
-    await AsyncStorage.removeItem("festyville.tutorial.planning_seen");
+    await AsyncStorage.multiRemove([
+      "festyville.tutorial.planning_seen",
+      STATE_CACHE_PREFIX + pid,
+    ]);
     try {
       await signOut(getFirebaseAuth());
     } catch {}
@@ -152,6 +209,7 @@ export const api = {
   },
   newSave: async () => {
     // Sign out the current anonymous user and let waitForUser create a fresh one.
+    await clearCachedStateForCurrentUser();
     try {
       await signOut(getFirebaseAuth());
     } catch {}

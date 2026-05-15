@@ -12,7 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { api, type CatalogItem, type PlayerState, type SimResult } from "../src/api";
+import { api, loadCachedState, loadCachedCatalog, type CatalogItem, type PlayerState, type SimResult } from "../src/api";
 import { COLORS, CATEGORY_COLORS } from "../src/theme";
 import { computeScore, type ScoreBreakdown } from "../src/lib/scoring";
 import { ensurePermission, scheduleBuildComplete, cancelScheduled } from "../src/notifications";
@@ -70,28 +70,74 @@ export default function Index() {
   }, []);
 
   const refreshState = useCallback(async () => {
-    const s = await api.state();
-    setState(s as PlayerState);
+    try {
+      const s = await api.state();
+      setState(s as PlayerState);
+      setOffline(false);
+    } catch (e) {
+      // Network down — keep showing cached state, just flag offline.
+      setOffline(true);
+      throw e;
+    }
   }, []);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const hydratedFromCacheRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
+
+    // 1) Instant hydrate from local cache (do not block on network).
+    //    Use functional setState guards so a slow cache read can never overwrite
+    //    a faster server response.
+    (async () => {
+      const [cachedCat, cachedState] = await Promise.all([loadCachedCatalog(), loadCachedState()]);
+      if (cancelled) return;
+      if (cachedCat) {
+        setCatalog((prev) => (prev.length ? prev : cachedCat.catalog));
+        setGridSize((prev) => prev || cachedCat.grid_size);
+      }
+      if (cachedState) {
+        setState((prev) => {
+          if (prev) return prev; // server already populated — keep fresher data
+          hydratedFromCacheRef.current = true;
+          setLoading(false);
+          return cachedState;
+        });
+      }
+    })();
+
+    // 2) Background sync from server. If it fails but we have cache, mark offline.
     (async () => {
       try {
         const [c, s] = await Promise.all([api.catalog(), api.state()]);
+        if (cancelled) return;
         setCatalog(c.catalog);
         setGridSize(c.grid_size);
         setState(s as PlayerState);
+        setOffline(false);
+        setLoadError(null);
       } catch (e: any) {
+        if (cancelled) return;
         const msg = e?.message || String(e);
         Analytics.errorOccurred("load_failed", msg, "index_init");
-        setLoadError(msg);
-        alertOrLog("Connection Error", msg);
+        if (hydratedFromCacheRef.current) {
+          // We have local data — degrade gracefully instead of blocking the UI.
+          setOffline(true);
+        } else {
+          setLoadError(msg);
+          alertOrLog("Connection Error", msg);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 1Hz tick. Every 5s, re-poll state so 'building'->'ready' status is reflected from server.
@@ -148,6 +194,7 @@ export default function Index() {
     try {
       const s = await api.place(item.id, selectedTile.x, selectedTile.y);
       setState(s as PlayerState);
+      setOffline(false);
       Analytics.buildingPlaced(item.id, item.category, item.tier, item.cost);
       const placed = (s as PlayerState).buildings.find(
         (b) => b.x === selectedTile.x && b.y === selectedTile.y
@@ -179,6 +226,7 @@ export default function Index() {
       const building = state?.buildings.find((b) => b.id === id);
       const s = await api.speedup(id);
       setState(s as PlayerState);
+      setOffline(false);
       if (building) {
         const item = catalog.find((c) => c.id === building.catalog_id);
         const coinsSpent = item ? Math.ceil(item.cost * 0.5) : 0;
@@ -215,6 +263,7 @@ export default function Index() {
     try {
       const r = await api.simulate(breakdown);
       pendingResultRef.current = r as SimResult;
+      setOffline(false);
       Analytics.festivalRun(
         r.grade,
         r.composite,
@@ -323,6 +372,11 @@ export default function Index() {
           </Text>
         ) : (
           <Text style={styles.lastResult}>Day {state.day}/7 · {state.lineup.length} artist(s) booked · Build & wait</Text>
+        )}
+        {offline && (
+          <View style={styles.offlinePill} testID="offline-pill">
+            <Text style={styles.offlinePillText}>⚠ OFFLINE — showing last saved festival</Text>
+          </View>
         )}
       </View>
 
@@ -454,6 +508,22 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 6,
     letterSpacing: 1,
+  },
+  offlinePill: {
+    alignSelf: "center",
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,153,0,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,153,0,0.55)",
+  },
+  offlinePillText: {
+    color: "#FFB347",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.2,
   },
   worldScrollX: { flex: 1, marginTop: 4 },
   bottomBar: {

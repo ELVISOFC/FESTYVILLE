@@ -174,6 +174,52 @@ ACHIEVEMENTS: List[Dict[str, Any]] = [
 ]
 ACHIEVEMENTS_BY_ID = {a["id"]: a for a in ACHIEVEMENTS}
 
+# ---------- Milestones ----------
+# Long-term progression layer awarded after a festival simulation. Each
+# entry is checked at most once per player; once the id is in
+# state.milestone_ids it never fires again. reward_rep is reputation points
+# (currency-of-prestige) granted on first unlock.
+MILESTONES: List[Dict[str, Any]] = [
+    {"id": "ms_first_festival", "name": "First Festival",   "desc": "Run your very first festival",                  "emoji": "🎪", "reward_rep": 10},
+    {"id": "ms_five_events",    "name": "Veteran Promoter", "desc": "Run 5 festivals",                               "emoji": "🎟️", "reward_rep": 25},
+    {"id": "ms_ten_events",     "name": "Festival Circuit", "desc": "Run 10 festivals",                              "emoji": "🌟", "reward_rep": 50},
+    {"id": "ms_first_a_grade",  "name": "Top Billing",      "desc": "Earn your first A grade or better",             "emoji": "🅰️", "reward_rep": 20},
+    {"id": "ms_first_s_grade",  "name": "Headliner",        "desc": "Earn a perfect S grade",                        "emoji": "🏆", "reward_rep": 60},
+    {"id": "ms_three_artists",  "name": "Booker",           "desc": "Book 3 artists in a single festival",           "emoji": "🎤", "reward_rep": 15},
+    {"id": "ms_perfect_crowd",  "name": "Crowd Whisperer",  "desc": "Achieve perfect crowd flow in a festival",      "emoji": "👥", "reward_rep": 30},
+    {"id": "ms_pure_genre",     "name": "Purist",           "desc": "Run a pure-genre festival",                     "emoji": "🎵", "reward_rep": 20},
+    {"id": "ms_local_tier",     "name": "Local Hero",       "desc": "Reach the Local tier (Phase 2)",                "emoji": "🏘️", "reward_rep": 25},
+    {"id": "ms_regional_tier",  "name": "Regional Star",    "desc": "Reach the Regional tier (Phase 3)",             "emoji": "🏙️", "reward_rep": 40},
+]
+MILESTONES_BY_ID = {m["id"]: m for m in MILESTONES}
+
+def check_milestones(state: Dict[str, Any], context: Dict[str, Any]) -> List[str]:
+    """Return list of milestone ids newly earned this simulate(). Each id fires once."""
+    earned = set(state.get("milestone_ids", []))
+    new_ids: List[str] = []
+
+    def unlock(mid: str):
+        if mid not in earned:
+            new_ids.append(mid)
+            earned.add(mid)
+
+    festivals = state.get("festivals_run", 0)
+    grade = context.get("grade")
+    phase = state.get("phase", 1)
+
+    if festivals >= 1:                          unlock("ms_first_festival")
+    if festivals >= 5:                          unlock("ms_five_events")
+    if festivals >= 10:                         unlock("ms_ten_events")
+    if grade in ("A", "S"):                     unlock("ms_first_a_grade")
+    if grade == "S":                            unlock("ms_first_s_grade")
+    if context.get("lineup_size", 0) >= 3:      unlock("ms_three_artists")
+    if context.get("crowd_flow_raw", 0) >= 100: unlock("ms_perfect_crowd")
+    if context.get("genre_pure"):               unlock("ms_pure_genre")
+    if phase >= 2:                              unlock("ms_local_tier")
+    if phase >= 3:                              unlock("ms_regional_tier")
+
+    return new_ids
+
 # ---------- Daily Challenges ----------
 DAILY_CHALLENGES: List[Dict[str, Any]] = [
     {"id": "book_artist",   "text": "Book at least 1 artist this cycle",    "target": "lineup_min_1",   "coins": 200, "xp": 30},
@@ -213,6 +259,8 @@ class PlayerState(BaseModel):
     lineup: List[str] = []
     day_log: List[Dict[str, Any]] = []
     achievements: List[str] = []
+    # Milestone ids the player has earned (each fires once, ever)
+    milestone_ids: List[str] = []
     daily_challenge: Optional[Dict[str, Any]] = None
     minigame_last: str = ""
     streak: int = 0
@@ -362,7 +410,8 @@ async def get_or_create_state(player_id: str) -> Dict[str, Any]:
         doc = s.model_dump()
     defaults = {
         "cycle": 1, "day": 1, "genre": None, "lineup": [], "day_log": [],
-        "achievements": [], "daily_challenge": None, "minigame_last": "", "streak": 0,
+        "achievements": [], "milestone_ids": [],
+        "daily_challenge": None, "minigame_last": "", "streak": 0,
         "genre_affinity": {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0},
     }
     missing = {k: v for k, v in defaults.items() if k not in doc}
@@ -811,11 +860,19 @@ async def simulate(player_id: str, req: SimulateRequest):
         "grade": grade,
         "genre_pure": genre_pure,
         "mixed_bag": mixed_bag,
+        "lineup_size": len(lineup),
+        "crowd_flow_raw": crowd_flow,
     }
     new_ach = check_achievements(state, context)
     if new_ach:
         state.setdefault("achievements", []).extend(new_ach)
         state["achievements"] = list(set(state["achievements"]))
+
+    # Milestones: long-term progression — each fires only once per player
+    new_ms = check_milestones(state, context)
+    if new_ms:
+        state.setdefault("milestone_ids", []).extend(new_ms)
+        state["milestone_ids"] = list(set(state["milestone_ids"]))
 
     # Assign next cycle's challenge
     state["daily_challenge"] = assign_daily_challenge(state["cycle"])
@@ -830,6 +887,7 @@ async def simulate(player_id: str, req: SimulateRequest):
             "lineup": [], "day_log": [], "streak": 0,
             "achievements": state["achievements"], "daily_challenge": state["daily_challenge"],
             "genre_affinity": state.get("genre_affinity", {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0}),
+            "milestone_ids": state.get("milestone_ids", []),
         }}
     )
 
@@ -862,6 +920,7 @@ async def simulate(player_id: str, req: SimulateRequest):
             "name": ch.get("text") if ch else None,
         } if ch else None,
         "new_achievements": [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID],
+        "new_milestones": [MILESTONES_BY_ID[m] for m in new_ms if m in MILESTONES_BY_ID],
         "state": {
             "coins": state["coins"], "xp": state["xp"],
             "level": state["level"], "phase": state["phase"],

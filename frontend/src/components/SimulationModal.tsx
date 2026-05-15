@@ -60,6 +60,7 @@ export default function SimulationModal({ visible, result, onClose }: Props) {
   const gradeColor = GRADE_COLORS[result.grade] || COLORS.accent;
   const hasChallengeBonus = result.challenge?.completed && (result.challenge.bonus_coins > 0 || result.challenge.bonus_xp > 0);
   const hasAchs = result.new_achievements && result.new_achievements.length > 0;
+  const hasMilestones = result.new_milestones && result.new_milestones.length > 0;
 
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
@@ -70,6 +71,27 @@ export default function SimulationModal({ visible, result, onClose }: Props) {
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.card, { borderColor: gradeColor + "AA", shadowColor: gradeColor }]} testID="simulation-results-modal">
+            {/* Milestone celebration — shown at the very top so it's the first thing seen */}
+            {hasMilestones && (
+              <View style={styles.msBanner} testID="results-milestone-banner">
+                <Text style={styles.msBannerLabel}>
+                  ✨ MILESTONE{result.new_milestones.length > 1 ? "S" : ""} UNLOCKED
+                </Text>
+                {result.new_milestones.map((m) => (
+                  <View key={m.id} style={styles.msRow} testID={`results-milestone-${m.id}`}>
+                    <Text style={styles.msEmoji}>{m.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.msName}>{m.name}</Text>
+                      <Text style={styles.msDesc}>{m.desc}</Text>
+                    </View>
+                    <View style={styles.msRepPill}>
+                      <Text style={styles.msRepText}>+{m.reward_rep} REP</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
             <Text style={styles.heading}>FESTIVAL RESULTS</Text>
             <Animated.View style={{ transform: [{ scale: gradeScale }], alignItems: "center", marginBottom: 12 }}>
               <Text
@@ -246,4 +268,47 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.primary, shadowOpacity: 0.5, shadowRadius: 12,
   },
   ctaText: { color: "#fff", fontWeight: "900", letterSpacing: 3, fontSize: 14 },
+  msBanner: {
+    width: "100%",
+    backgroundColor: "#00FFFF12",
+    borderWidth: 1.5,
+    borderColor: "#00FFFF88",
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+    gap: 8,
+    shadowColor: "#00FFFF",
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  msBannerLabel: {
+    color: "#00FFFF",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 2,
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  msRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  msEmoji: { fontSize: 22 },
+  msName: { color: COLORS.textPrimary, fontWeight: "900", fontSize: 13 },
+  msDesc: { color: COLORS.textSecondary, fontSize: 10, marginTop: 1 },
+  msRepPill: {
+    backgroundColor: "#00FFFF22",
+    borderWidth: 1,
+    borderColor: "#00FFFF88",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  msRepText: { color: "#00FFFF", fontWeight: "900", fontSize: 10, letterSpacing: 1 },
 });

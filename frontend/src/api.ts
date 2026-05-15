@@ -185,6 +185,7 @@ export type PlayerState = {
   lineup: string[];
   day_log: DayLogEntry[];
   achievements: string[];
+  milestone_ids: string[];
   daily_challenge: DailyChallenge | null;
   minigame_last: string;
   streak: number;
@@ -227,5 +228,14 @@ export type SimResult = {
     name: string | null;
   } | null;
   new_achievements: Achievement[];
+  new_milestones: Milestone[];
   state: { coins: number; xp: number; level: number; phase: number; festivals_run: number; cycle: number; day: number };
+};
+
+export type Milestone = {
+  id: string;
+  name: string;
+  desc: string;
+  emoji: string;
+  reward_rep: number;
 };

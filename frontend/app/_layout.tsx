@@ -19,6 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="planning" options={{ presentation: "modal" }} />
         <Stack.Screen name="menu" options={{ presentation: "modal" }} />
         <Stack.Screen name="leaderboard" options={{ presentation: "modal" }} />
+        <Stack.Screen name="legacy" options={{ presentation: "modal" }} />
       </Stack>
     </SafeAreaProvider>
   );

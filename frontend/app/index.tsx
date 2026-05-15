@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { api, type CatalogItem, type PlayerState, type SimResult } from "../src/api";
 import { COLORS, CATEGORY_COLORS } from "../src/theme";
+import { computeScore, type ScoreBreakdown } from "../src/lib/scoring";
 import { ensurePermission, scheduleBuildComplete, cancelScheduled } from "../src/notifications";
 import { Analytics } from "../src/analytics";
 import HUD from "../src/components/HUD";
@@ -44,6 +45,10 @@ export default function Index() {
   const [simResult, setSimResult] = useState<SimResult | null>(null);
   const [simOpen, setSimOpen] = useState(false);
   const [simAnimating, setSimAnimating] = useState(false);
+  const [simBreakdown, setSimBreakdown] = useState<ScoreBreakdown>({
+    stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
+    utility_coverage: 0, aesthetic: 0, composite: 0,
+  });
   const pendingResultRef = useRef<SimResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -181,6 +186,15 @@ export default function Index() {
       alertOrLog("Festival Cancelled", "Place and finish at least one building first.");
       return;
     }
+    // Compute client-side score breakdown so the overlay agents reflect
+    // the actual festival layout before the server responds.
+    const breakdown = computeScore(
+      state.buildings,
+      state.lineup,
+      state.genre ?? null,
+      catalog,
+    );
+    setSimBreakdown(breakdown);
     setBusy(true);
     setSimAnimating(true);
     pendingResultRef.current = null;
@@ -363,6 +377,7 @@ export default function Index() {
         gridSize={gridSize}
         buildings={state.buildings}
         catalog={catalog}
+        scoreBreakdown={simBreakdown}
         onComplete={handleAnimationComplete}
       />
       <SimulationModal

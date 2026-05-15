@@ -12,13 +12,25 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { api, type Artist, type Genre, type PlayerState, type Achievement } from "../src/api";
+import {
+  api,
+  type Artist,
+  type Genre,
+  type PlayerState,
+  type Achievement,
+  type CatalogItem,
+} from "../src/api";
 import { COLORS } from "../src/theme";
 import { Analytics } from "../src/analytics";
 import TutorialModal from "../src/components/TutorialModal";
 import CharacterBubble from "../src/components/CharacterBubble";
 import MiniGameModal from "../src/components/MiniGameModal";
 import AchievementToast from "../src/components/AchievementToast";
+import { computeScore, type ScoreBreakdown } from "../src/lib/scoring";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const GENRE_COLORS: Record<string, string> = {
   edm:    "#00FFFF",
@@ -28,29 +40,127 @@ const GENRE_COLORS: Record<string, string> = {
   mixed:  "#FFD700",
 };
 
+const DIM_COLORS = {
+  stage:   "#FF0055",
+  crowd:   "#00FFFF",
+  vendor:  "#FF9900",
+  utility: "#00FF66",
+  decor:   "#FFD700",
+};
+
+// ---------------------------------------------------------------------------
+// Grade helper
+// ---------------------------------------------------------------------------
+
+function gradeFor(n: number): { letter: string; color: string } {
+  if (n >= 90) return { letter: "S", color: "#00FFFF" };
+  if (n >= 75) return { letter: "A", color: "#00FF66" };
+  if (n >= 60) return { letter: "B", color: "#AAFF00" };
+  if (n >= 45) return { letter: "C", color: "#FFD700" };
+  if (n >= 30) return { letter: "D", color: "#FF9900" };
+  return { letter: "F", color: "#FF4455" };
+}
+
+// ---------------------------------------------------------------------------
+// ScoreLiveBar
+// ---------------------------------------------------------------------------
+
+type ScoreLiveBarProps = {
+  score: ScoreBreakdown;
+  hasReadyBuildings: boolean;
+};
+
+function ScoreLiveBar({ score, hasReadyBuildings }: ScoreLiveBarProps) {
+  const grade = gradeFor(score.composite);
+
+  const dims: Array<{ key: string; label: string; value: number; max: number; color: string }> = [
+    { key: "stage",   label: "Stage",    value: score.stage_score,      max: 30, color: DIM_COLORS.stage   },
+    { key: "crowd",   label: "Crowd",    value: score.crowd_flow,        max: 20, color: DIM_COLORS.crowd   },
+    { key: "vendor",  label: "Vendor",   value: score.vendor_coverage,   max: 20, color: DIM_COLORS.vendor  },
+    { key: "utility", label: "Utility",  value: score.utility_coverage,  max: 15, color: DIM_COLORS.utility },
+    { key: "decor",   label: "Aesthetic", value: score.aesthetic,        max: 15, color: DIM_COLORS.decor   },
+  ];
+
+  const fillPct = Math.min(100, (score.composite / 110) * 100); // 110 = theoretical max with genre bonus
+
+  return (
+    <View style={sb.container}>
+      {/* Header row */}
+      <View style={sb.headerRow}>
+        <Text style={sb.label}>⚡ LIVE SCORE</Text>
+        <View style={sb.compositeGroup}>
+          <Text style={sb.compositeNum}>{score.composite}</Text>
+          <View style={[sb.gradePill, { borderColor: grade.color + "66", backgroundColor: grade.color + "18" }]}>
+            <Text style={[sb.gradeLetter, { color: grade.color }]}>{grade.letter}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Composite progress bar */}
+      <View style={sb.progressTrack}>
+        <View style={[sb.progressFill, { width: `${fillPct}%` as any, backgroundColor: grade.color }]} />
+      </View>
+
+      {/* 5 dimension mini-bars */}
+      <View style={sb.dimsRow}>
+        {dims.map((d) => {
+          const pct = d.max > 0 ? Math.min(1, d.value / d.max) : 0;
+          return (
+            <View key={d.key} style={sb.dimCell}>
+              <Text style={sb.dimLabel}>{d.label}</Text>
+              <View style={sb.dimTrack}>
+                <View
+                  style={[
+                    sb.dimFill,
+                    { width: `${Math.round(pct * 100)}%` as any, backgroundColor: d.color },
+                  ]}
+                />
+              </View>
+              <Text style={[sb.dimVal, { color: d.color }]}>
+                {Math.round(d.value)}/{d.max}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {!hasReadyBuildings && (
+        <Text style={sb.emptyHint}>Place buildings on your lot to see your score</Text>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
 function alertOrLog(title: string, msg: string) {
   if (Platform.OS === "web") window.alert(`${title}\n\n${msg}`);
   else Alert.alert(title, msg);
 }
 
+// ---------------------------------------------------------------------------
+// Planning screen
+// ---------------------------------------------------------------------------
+
 export default function Planning() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [state, setState] = useState<PlayerState | null>(null);
+
+  const [state,   setState]   = useState<PlayerState | null>(null);
   const [artists, setArtists] = useState<Artist[]>([]);
-  const [genres, setGenres] = useState<Genre[]>([]);
+  const [genres,  setGenres]  = useState<Genre[]>([]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy,    setBusy]    = useState(false);
   const [miniGameOpen, setMiniGameOpen] = useState(false);
-  const [toastAchs, setToastAchs] = useState<Achievement[]>([]);
+  const [toastAchs,    setToastAchs]   = useState<Achievement[]>([]);
   const toastQueue = useRef<Achievement[][]>([]);
 
   const showAchievements = (achs: Achievement[]) => {
     if (!achs || achs.length === 0) return;
-    // Show one at a time
-    for (const a of achs) {
-      toastQueue.current.push([a]);
-    }
+    for (const a of achs) toastQueue.current.push([a]);
     if (toastAchs.length === 0) drainQueue();
   };
 
@@ -63,10 +173,11 @@ export default function Planning() {
     Analytics.screenView("planning");
     (async () => {
       try {
-        const [a, s] = await Promise.all([api.artists(), api.state()]);
+        const [a, s, cat] = await Promise.all([api.artists(), api.state(), api.catalog()]);
         setArtists(a.artists);
         setGenres(a.genres);
         setState(s as PlayerState);
+        setCatalog((cat as any).catalog ?? []);
       } catch (e: any) {
         Analytics.errorOccurred("load_failed", e.message || String(e), "planning_init");
         alertOrLog("Connection Error", e.message || String(e));
@@ -76,10 +187,30 @@ export default function Planning() {
     })();
   }, []);
 
+  // Live score — recomputes whenever buildings, lineup or genre change
+  const liveScore = useMemo<ScoreBreakdown>(() => {
+    if (!state || catalog.length === 0) {
+      return {
+        stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
+        utility_coverage: 0, aesthetic: 0, composite: 0,
+      };
+    }
+    return computeScore(state.buildings, state.lineup, state.genre ?? null, catalog);
+  }, [state?.buildings, state?.lineup, state?.genre, catalog]);
+
+  const hasReadyBuildings = useMemo(
+    () => (state?.buildings ?? []).some((b) => b.status === "ready"),
+    [state?.buildings],
+  );
+
   const filteredArtists = useMemo(() => {
     if (!state?.genre || state.genre === "mixed") return artists;
     return artists.filter((a) => a.genre === state.genre);
   }, [artists, state?.genre]);
+
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
 
   const pickGenre = async (gid: string) => {
     if (busy) return;
@@ -122,13 +253,16 @@ export default function Planning() {
     finally { setBusy(false); }
   };
 
-  const handleMiniGameReward = async (coins: number, xp: number) => {
-    // Refresh state to pick up server-side changes
+  const handleMiniGameReward = async (_coins: number, _xp: number) => {
     try {
       const s = await api.state();
       setState(s as PlayerState);
     } catch {}
   };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   if (loading || !state) {
     return (
@@ -150,6 +284,7 @@ export default function Planning() {
         <AchievementToast achievements={toastAchs} onDone={() => { setToastAchs([]); drainQueue(); }} />
       )}
 
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} testID="planning-back" style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
@@ -168,7 +303,7 @@ export default function Planning() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 130 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 200 }}>
 
         {/* Daily Challenge */}
         {ch && (
@@ -194,6 +329,7 @@ export default function Planning() {
           </View>
         )}
 
+        {/* Genre picker */}
         <Text style={styles.sectionLabel}>1. PICK A GENRE</Text>
         <View style={styles.genreRow}>
           {genres.map((g) => {
@@ -213,6 +349,7 @@ export default function Planning() {
           })}
         </View>
 
+        {/* Lineup */}
         <Text style={[styles.sectionLabel, { marginTop: 18 }]}>2. BOOK THE LINEUP</Text>
         {!state.genre && (
           <Text style={styles.hint}>Pick a genre first to see eligible artists.</Text>
@@ -220,10 +357,10 @@ export default function Planning() {
         {state.genre && (
           <View style={{ gap: 8 }}>
             {filteredArtists.map((a) => {
-              const locked = a.phase > state.phase;
-              const booked = state.lineup.includes(a.id);
-              const tooPoor = !booked && state.coins < a.fee;
-              const disabled = locked || (tooPoor && !booked);
+              const locked    = a.phase > state.phase;
+              const booked    = state.lineup.includes(a.id);
+              const tooPoor   = !booked && state.coins < a.fee;
+              const disabled  = locked || (tooPoor && !booked);
               const c = GENRE_COLORS[a.genre] || COLORS.accent;
               return (
                 <TouchableOpacity
@@ -286,8 +423,11 @@ export default function Planning() {
         )}
       </ScrollView>
 
+      {/* ── Live Score Preview ───────────────────────────────────────────── */}
+      <ScoreLiveBar score={liveScore} hasReadyBuildings={hasReadyBuildings} />
+
+      {/* ── Bottom bar ───────────────────────────────────────────────────── */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
-        {/* Mini game CTA */}
         {!isFestivalDay && (
           <TouchableOpacity
             style={[styles.miniGameBtn, miniPlayedToday && { opacity: 0.35 }]}
@@ -338,6 +478,108 @@ function inMessage(wasBooked: boolean) {
   return wasBooked ? "Cannot unbook" : "Cannot book";
 }
 
+// ---------------------------------------------------------------------------
+// ScoreLiveBar styles
+// ---------------------------------------------------------------------------
+
+const sb = StyleSheet.create({
+  container: {
+    backgroundColor: "#0c0d15",
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  label: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
+  compositeGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  compositeNum: {
+    color: COLORS.textPrimary,
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+  },
+  gradePill: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gradeLetter: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  progressTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 4,
+    borderRadius: 2,
+    minWidth: 4,
+  },
+  dimsRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 2,
+  },
+  dimCell: {
+    flex: 1,
+    gap: 2,
+  },
+  dimLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  dimTrack: {
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  dimFill: {
+    height: 3,
+    borderRadius: 2,
+    minWidth: 2,
+  },
+  dimVal: {
+    fontSize: 8,
+    fontWeight: "800",
+  },
+  emptyHint: {
+    color: COLORS.textSecondary,
+    fontSize: 9,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 2,
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Planning screen styles
+// ---------------------------------------------------------------------------
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   center: { alignItems: "center", justifyContent: "center" },
@@ -350,35 +592,20 @@ const styles = StyleSheet.create({
   title: { color: COLORS.textPrimary, fontWeight: "900", letterSpacing: 4, fontSize: 14 },
   subtitle: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 1 },
   challengeCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1a2030",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: "#FFD70066",
-    gap: 8,
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: "#1a2030", borderRadius: 12, padding: 12, marginBottom: 14,
+    borderWidth: 1.5, borderColor: "#FFD70066", gap: 8,
   },
-  challengeDone: {
-    borderColor: "#00FF6666",
-    backgroundColor: "#001a10",
-  },
+  challengeDone: { borderColor: "#00FF6666", backgroundColor: "#001a10" },
   challengeLabel: { color: "#FFD700", fontWeight: "900", fontSize: 9, letterSpacing: 1.5, marginBottom: 2 },
   challengeText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: "700" },
   challengeReward: { color: COLORS.success, fontWeight: "900", fontSize: 13 },
   challengeRewardXp: { color: COLORS.secondary, fontWeight: "700", fontSize: 11 },
   streakRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FF990015",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "#FF990044",
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: "#FF990015", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 7, marginBottom: 14,
+    borderWidth: 1, borderColor: "#FF990044",
   },
   streakText: { color: "#FF9900", fontWeight: "800", fontSize: 12 },
   streakBonus: { color: COLORS.success, fontWeight: "700", fontSize: 10 },
@@ -414,22 +641,15 @@ const styles = StyleSheet.create({
   lockedTxt: { color: COLORS.warning, fontSize: 10, fontWeight: "700", marginTop: 4 },
   tapTxt: { color: COLORS.textSecondary, fontSize: 10, marginTop: 4 },
   bottomBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 16, paddingTop: 12,
     backgroundColor: "#0c0d15",
-    borderTopWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderTopWidth: 1, borderColor: "rgba(255,255,255,0.06)",
   },
   miniGameBtn: {
     backgroundColor: COLORS.surfaceElev,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 14, paddingVertical: 13, borderRadius: 999,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
   miniGameBtnText: { color: COLORS.textPrimary, fontWeight: "800", fontSize: 12 },
   bigBtn: {

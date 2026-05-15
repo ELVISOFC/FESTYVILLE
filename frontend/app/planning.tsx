@@ -26,7 +26,7 @@ import TutorialModal from "../src/components/TutorialModal";
 import CharacterBubble from "../src/components/CharacterBubble";
 import MiniGameModal from "../src/components/MiniGameModal";
 import AchievementToast from "../src/components/AchievementToast";
-import { computeScore, type ScoreBreakdown } from "../src/lib/scoring";
+import { computeScore, computeChemistry, type ScoreBreakdown } from "../src/lib/scoring";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -192,7 +192,7 @@ export default function Planning() {
     if (!state || catalog.length === 0) {
       return {
         stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
-        utility_coverage: 0, aesthetic: 0, composite: 0,
+        utility_coverage: 0, aesthetic: 0, chemistry_bonus: 0, composite: 0,
       };
     }
     return computeScore(state.buildings, state.lineup, state.genre ?? null, catalog);
@@ -207,6 +207,17 @@ export default function Planning() {
     if (!state?.genre || state.genre === "mixed") return artists;
     return artists.filter((a) => a.genre === state.genre);
   }, [artists, state?.genre]);
+
+  // Live chemistry — recomputes whenever the booked lineup or roster changes.
+  // Mirrors computeChemistry in scoring.ts (0–10 bonus). Hidden if <2 artists.
+  const chemistry = useMemo(() => {
+    const lineup = state?.lineup ?? [];
+    if (lineup.length < 2 || artists.length === 0) return null;
+    const byId = new Map(artists.map((a) => [a.id, a]));
+    const genres = lineup.map((id) => byId.get(id)?.genre).filter(Boolean) as string[];
+    if (genres.length < 2) return null;
+    return computeChemistry(genres);
+  }, [state?.lineup, artists]);
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -354,6 +365,29 @@ export default function Planning() {
         {!state.genre && (
           <Text style={styles.hint}>Pick a genre first to see eligible artists.</Text>
         )}
+        {state.genre && chemistry !== null && (() => {
+          const ratio = chemistry / 10;
+          const color = ratio > 0.7 ? "#00FF66" : ratio >= 0.4 ? "#FFD700" : "#FF4455";
+          const label = ratio > 0.7 ? "Great chemistry" : ratio >= 0.4 ? "Mixed bag" : "Genre clash";
+          return (
+            <View style={styles.chemCard} testID="chemistry-bar">
+              <View style={styles.chemHeader}>
+                <Text style={styles.chemLabel}>🎵 LINEUP CHEMISTRY</Text>
+                <Text style={[styles.chemValue, { color }]}>
+                  {chemistry.toFixed(1)} · {label}
+                </Text>
+              </View>
+              <View style={styles.chemTrack}>
+                <View
+                  style={[
+                    styles.chemFill,
+                    { width: `${Math.round(ratio * 100)}%` as any, backgroundColor: color },
+                  ]}
+                />
+              </View>
+            </View>
+          );
+        })()}
         {state.genre && (
           <View style={{ gap: 8 }}>
             {filteredArtists.map((a) => {
@@ -620,6 +654,43 @@ const styles = StyleSheet.create({
   genreDot: { width: 8, height: 8, borderRadius: 4 },
   genreLabel: { color: COLORS.textSecondary, fontWeight: "700", fontSize: 12 },
   hint: { color: COLORS.textSecondary, fontSize: 12, fontStyle: "italic" },
+  chemCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    gap: 6,
+  },
+  chemHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  chemLabel: {
+    color: COLORS.textSecondary,
+    fontWeight: "900",
+    fontSize: 10,
+    letterSpacing: 1.5,
+  },
+  chemValue: {
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  chemTrack: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  chemFill: {
+    height: 6,
+    borderRadius: 3,
+    minWidth: 4,
+  },
   artistRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: COLORS.surface, borderRadius: 14, padding: 12,

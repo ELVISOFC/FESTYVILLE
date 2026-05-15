@@ -59,8 +59,6 @@ export default function SimulationModal({ visible, result, onClose }: Props) {
       const dedup = `${key}#${m.id}`;
       if (_milestoneLogged.has(dedup)) return;
       _milestoneLogged.add(dedup);
-      // eslint-disable-next-line no-console
-      console.log("[Analytics] milestone_earned", { milestone_id: m.id, events_played: eventsPlayed });
       Analytics.milestoneEarned(m.id, eventsPlayed);
     });
     _trim(_milestoneLogged);
@@ -74,8 +72,6 @@ export default function SimulationModal({ visible, result, onClose }: Props) {
       if (!_tierLogged.has(dedup)) {
         _tierLogged.add(dedup);
         _trim(_tierLogged);
-        // eslint-disable-next-line no-console
-        console.log("[Analytics] legacy_tier_unlocked", { tier: tu.to, reputation_score: tu.reputation_score });
         Analytics.legacyTierUnlocked(tu.to, tu.reputation_score);
       }
     }

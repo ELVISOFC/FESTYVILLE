@@ -53,4 +53,11 @@ export const Analytics = {
 
   errorOccurred: (errorCode: string, errorMessage: string, context: string) =>
     log("app_error", { error_code: errorCode, error_message: errorMessage.slice(0, 100), context }),
+
+  // Legacy/anti-churn signals — fire exactly once per trigger
+  legacyTierUnlocked: (tier: string, reputationScore: number) =>
+    log("legacy_tier_unlocked", { tier, reputation_score: reputationScore }),
+
+  milestoneEarned: (milestoneId: string, eventsPlayed: number) =>
+    log("milestone_earned", { milestone_id: milestoneId, events_played: eventsPlayed }),
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, GRADE_COLORS } from "../theme";
 import type { SimResult } from "../api";
+import { Analytics } from "../analytics";
 
 type Props = {
   visible: boolean;
@@ -27,9 +28,55 @@ const DIMS: { key: keyof SimResult["breakdown"]; label: string; color: string }[
   { key: "aesthetic",        label: "AESTHETIC",        color: "#FFD700" },
 ];
 
+// Module-level dedupe sets — survive component remount, rapid clicks, and
+// re-renders, so each analytics event fires exactly once per simulate().
+// Bounded to keep memory flat over a long session.
+const _milestoneLogged = new Set<string>();
+const _tierLogged = new Set<string>();
+function _trim(set: Set<string>, max = 500) {
+  if (set.size > max) {
+    const it = set.values();
+    for (let i = 0; i < set.size - max; i++) set.delete(it.next().value as string);
+  }
+}
+function _simKey(r: SimResult): string {
+  // Deterministic per-simulation key (no simulation_id from backend).
+  // festivals_run is monotonically incremented server-side per simulate(),
+  // so this is unique per run for a given player session.
+  return `${r.state?.festivals_run ?? 0}|${r.grade}|${r.composite}`;
+}
+
 export default function SimulationModal({ visible, result, onClose }: Props) {
   const barAnims = useRef(DIMS.map(() => new Animated.Value(0))).current;
   const gradeScale = useRef(new Animated.Value(0)).current;
+
+  // Fire milestone_earned exactly once per milestone per simulation.
+  useEffect(() => {
+    if (!visible || !result || !result.new_milestones?.length) return;
+    const key = _simKey(result);
+    const eventsPlayed = result.state?.festivals_run ?? 0;
+    result.new_milestones.forEach((m) => {
+      const dedup = `${key}#${m.id}`;
+      if (_milestoneLogged.has(dedup)) return;
+      _milestoneLogged.add(dedup);
+      Analytics.milestoneEarned(m.id, eventsPlayed);
+    });
+    _trim(_milestoneLogged);
+  }, [visible, result]);
+
+  // Fire legacy_tier_unlocked once, on dismiss, if this run upgraded the tier.
+  const handleClose = useCallback(() => {
+    const tu = result?.tier_upgrade;
+    if (result && tu && tu.to !== tu.from) {
+      const dedup = `${_simKey(result)}#${tu.to}`;
+      if (!_tierLogged.has(dedup)) {
+        _tierLogged.add(dedup);
+        _trim(_tierLogged);
+        Analytics.legacyTierUnlocked(tu.to, tu.reputation_score);
+      }
+    }
+    onClose();
+  }, [result, onClose]);
 
   useEffect(() => {
     if (!visible || !result) return;
@@ -63,7 +110,7 @@ export default function SimulationModal({ visible, result, onClose }: Props) {
   const hasMilestones = result.new_milestones && result.new_milestones.length > 0;
 
   return (
-    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <ScrollView
           style={{ width: "100%", maxWidth: 420 }}
@@ -178,7 +225,7 @@ export default function SimulationModal({ visible, result, onClose }: Props) {
               </View>
             )}
 
-            <TouchableOpacity style={styles.cta} onPress={onClose} testID="results-close">
+            <TouchableOpacity style={styles.cta} onPress={handleClose} testID="results-close">
               <Text style={styles.ctaText}>CONTINUE</Text>
             </TouchableOpacity>
           </View>

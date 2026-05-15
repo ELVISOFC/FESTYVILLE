@@ -914,11 +914,16 @@ async def simulate(player_id: str, req: SimulateRequest):
 
     # ── Reputation / Legacy layer ─────────────────────────────────────
     # rep_gain = (stars × 100) + (composite × 0.5). Monotonic; never decreases.
+    prev_tier = state.get("legacy_tier", "unknown")
     stars = star_rating_for(grade)
     # Min +1 so reputation strictly increases after every event, even on grade F.
     rep_gain = max(1, int(stars * 100 + composite * 0.5))
     state["reputation_score"] = int(state.get("reputation_score", 0)) + rep_gain
     state["legacy_tier"] = derive_tier(state["reputation_score"])
+    tier_upgrade = (
+        {"from": prev_tier, "to": state["legacy_tier"], "reputation_score": state["reputation_score"]}
+        if state["legacy_tier"] != prev_tier else None
+    )
 
     # genre_identity = the genre the player has invested in most.
     # Falls back to current value (or None) if all affinities are still 0.
@@ -978,6 +983,7 @@ async def simulate(player_id: str, req: SimulateRequest):
         } if ch else None,
         "new_achievements": [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID],
         "new_milestones": [MILESTONES_BY_ID[m] for m in new_ms if m in MILESTONES_BY_ID],
+        "tier_upgrade": tier_upgrade,
         "state": {
             "coins": state["coins"], "xp": state["xp"],
             "level": state["level"], "phase": state["phase"],

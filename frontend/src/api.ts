@@ -232,6 +232,7 @@ export type SimResult = {
   } | null;
   new_achievements: Achievement[];
   new_milestones: Milestone[];
+  tier_upgrade: { from: string; to: string; reputation_score: number } | null;
   state: { coins: number; xp: number; level: number; phase: number; festivals_run: number; cycle: number; day: number };
 };
 

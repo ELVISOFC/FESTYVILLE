@@ -199,7 +199,7 @@ export default function Index() {
     setSimAnimating(true);
     pendingResultRef.current = null;
     try {
-      const r = await api.simulate();
+      const r = await api.simulate(breakdown);
       pendingResultRef.current = r as SimResult;
       Analytics.festivalRun(
         r.grade,

@@ -210,6 +210,18 @@ class LeaderboardEntry(BaseModel):
     grade: str
     timestamp: float
 
+class ScoreBreakdownIn(BaseModel):
+    """Client-submitted score breakdown (weighted dimension values)."""
+    stage_score: float = 0       # weighted 0–30
+    crowd_flow: float = 0        # weighted 0–20
+    vendor_coverage: float = 0   # weighted 0–20
+    utility_coverage: float = 0  # weighted 0–15
+    aesthetic: float = 0         # weighted 0–15
+    composite: float = 0         # final 0–110
+
+class SimulateRequest(BaseModel):
+    client_score: ScoreBreakdownIn
+
 # ---------- Helpers ----------
 def now_ts() -> float:
     return datetime.now(timezone.utc).timestamp()
@@ -631,7 +643,7 @@ async def demolish(player_id: str, req: SpeedupRequest):
     return state
 
 @api_router.post("/state/{player_id}/simulate")
-async def simulate(player_id: str):
+async def simulate(player_id: str, req: SimulateRequest):
     state = await get_or_create_state(player_id)
     ready = [b for b in state["buildings"] if b["status"] == "ready"]
     building_count = len(ready)
@@ -711,6 +723,17 @@ async def simulate(player_id: str):
         + aesthetic * weights["aesthetic"]
     )
     composite = max(0, int(composite - penalty + genre_bonus))
+
+    # ── Cheat-resistance: validate client-submitted score ───────────────
+    # Server's composite is the authoritative value. The client's submission
+    # is validated only — anything outside the ±10 drift window (genuine
+    # rounding/state-drift slack) is rejected. Server score remains the
+    # source of truth for persistence and the leaderboard, and the error
+    # response intentionally does NOT leak the server's value (otherwise
+    # an attacker could probe and resubmit just inside the tolerance).
+    client_composite = float(req.client_score.composite)
+    if abs(client_composite - composite) >= 10:
+        raise HTTPException(400, "Score mismatch: client value rejected")
     grade = grade_from_score(composite)
 
     coin_reward = int(composite * 15 + 200)

@@ -48,9 +48,19 @@ export const api = {
     const pid = await getPlayerId();
     return req(`/state/${pid}/demolish`, { method: "POST", body: JSON.stringify({ building_id }) });
   },
-  simulate: async () => {
+  simulate: async (breakdown: {
+    stage_score: number;
+    crowd_flow: number;
+    vendor_coverage: number;
+    utility_coverage: number;
+    aesthetic: number;
+    composite: number;
+  }) => {
     const pid = await getPlayerId();
-    return req(`/state/${pid}/simulate`, { method: "POST" });
+    return req(`/state/${pid}/simulate`, {
+      method: "POST",
+      body: JSON.stringify({ client_score: breakdown }),
+    });
   },
   rename: async (name: string) => {
     const pid = await getPlayerId();

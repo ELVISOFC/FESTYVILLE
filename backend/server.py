@@ -1083,10 +1083,32 @@ async def leaderboard(limit: int = 25):
     return {"entries": docs}
 
 app.include_router(api_router)
+
+# ---------- CORS ----------
+# Explicit localhost entries cover the Expo dev server (port 5000) and direct testing.
+# allow_origin_regex covers every Replit dev/prod domain (*.riker.replit.dev,
+# *.replit.app, *.expo.riker.replit.dev) without needing to know the exact domain
+# at startup — the backend subprocess doesn't reliably inherit REPLIT_DEV_DOMAIN.
+# Any extra origins (e.g. a custom domain) go in ALLOWED_ORIGINS (comma-separated).
+_explicit_origins = [
+    "http://localhost:5000",
+    "http://localhost:8000",
+    "http://127.0.0.1:5000",
+] + [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
+_origin_regex = (
+    r"https?://localhost(:\d+)?"
+    r"|https://[a-zA-Z0-9\-]+(\.expo)?\.riker\.replit\.dev(:\d+)?"
+    r"|https://[a-zA-Z0-9\-]+\.replit\.app(:\d+)?"
+)
+
+logger.info("CORS explicit_origins: %s  regex: %s", _explicit_origins, _origin_regex)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_explicit_origins,
+    allow_origin_regex=_origin_regex,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )

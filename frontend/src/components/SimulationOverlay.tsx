@@ -50,10 +50,10 @@ type Agent = {
 // ---------------------------------------------------------------------------
 function gradeFor(n: number): { letter: string; color: string } {
   if (n >= 90) return { letter: "S", color: "#00FFFF" };
-  if (n >= 75) return { letter: "A", color: "#00FF66" };
-  if (n >= 60) return { letter: "B", color: "#AAFF00" };
-  if (n >= 45) return { letter: "C", color: "#FFD700" };
-  if (n >= 30) return { letter: "D", color: "#FF9900" };
+  if (n >= 80) return { letter: "A", color: "#00FF66" };
+  if (n >= 65) return { letter: "B", color: "#AAFF00" };
+  if (n >= 50) return { letter: "C", color: "#FFD700" };
+  if (n >= 35) return { letter: "D", color: "#FF9900" };
   return { letter: "F", color: "#FF4455" };
 }
 

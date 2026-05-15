@@ -624,29 +624,45 @@ async def minigame_reward(player_id: str, body: Dict[str, Any]):
     state["xp"] += xp_reward
     state["minigame_last"] = current_key
 
+    # Stage Sweep: cooldown bonus — shave score*60s off every currently-building structure.
+    cooldown_bonus_seconds = 0
+    buildings_speeded = 0
+    if game == "stage_sweep" and score > 0:
+        cooldown_bonus_seconds = score * 60
+        t = now_ts()
+        for b in state.get("buildings", []):
+            if b.get("status") == "building" and b.get("ready_at", 0) > t:
+                b["ready_at"] = max(t, b["ready_at"] - cooldown_bonus_seconds)
+                buildings_speeded += 1
+                if b["ready_at"] <= t:
+                    b["status"] = "ready"
+
     while state["xp"] >= xp_for_level(state["level"]):
         state["level"] += 1
     state["phase"] = compute_phase(state["level"])
 
-    context = {"minigame_ace": (game == "sound_check" and score >= 4)}
+    context = {"minigame_ace": (game in ("rhythm_rush", "stage_sweep") and score >= 4)}
     new_ach = check_achievements(state, context)
     if new_ach:
         state.setdefault("achievements", []).extend(new_ach)
         state["achievements"] = list(set(state["achievements"]))
 
-    await db.players.update_one(
-        {"player_id": player_id},
-        {"$set": {
-            "coins": state["coins"], "xp": state["xp"],
-            "level": state["level"], "phase": state["phase"],
-            "minigame_last": current_key, "achievements": state["achievements"],
-        }}
-    )
+    update_set = {
+        "coins": state["coins"], "xp": state["xp"],
+        "level": state["level"], "phase": state["phase"],
+        "minigame_last": current_key, "achievements": state["achievements"],
+    }
+    if buildings_speeded > 0:
+        update_set["buildings"] = state["buildings"]
+
+    await db.players.update_one({"player_id": player_id}, {"$set": update_set})
     state["server_time"] = now_ts()
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
     return {
         "coins_earned": coin_reward,
         "xp_earned": xp_reward,
+        "cooldown_bonus_seconds": cooldown_bonus_seconds,
+        "buildings_speeded": buildings_speeded,
         "state": state,
         "new_achievements": state.get("new_achievements", []),
     }

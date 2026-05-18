@@ -120,27 +120,68 @@ def apply_goal_reward(state: PlayerState, reward: dict):
     for genre, points in reward.get("genre_affinity", {}).items():
         state.genre_affinity[genre] = state.genre_affinity.get(genre, 0) + points
 
-def simulate(state: Dict[str, Any], cycle_number: int):
+def simulate(state: Dict[str, Any], cycle_number: int, day: int):
     """
     Simulate a cycle, checking goals and applying rewards.
 
     Args:
         state (dict): The game state, including PlayerState and environment data.
         cycle_number (int): The current cycle number.
+        day (int): The current day in the cycle (1-7).
+
+    Returns:
+        dict: Response containing goal completion info for the frontend.
     """
     player = state["player"]
-    current_cycle_goal = player.current_cycle_goal
+    response = {
+        "goal_completed": False,
+        "goal_label": None,
+    }
 
-    # If there's no goal, pick a new one for the cycle reset
-    if not current_cycle_goal:
-        player.current_cycle_goal = pick_cycle_goal(player, cycle_number)
+    # Copilot: Wire the cycle goal system into this simulate endpoint.
+    # The functions pick_cycle_goal(), apply_goal_reward(), and GOALS dict
+    # already exist in this file.
 
-    # Check the goal and apply rewards if completed
-    if player.current_cycle_goal:
-        goal = player.current_cycle_goal
-        if goal["check"](state):
-            apply_goal_reward(player, goal["reward"])
-            print(f"Goal completed: {goal['label']} ({goal['reward_label']})")
-            player.current_cycle_goal = None  # Reset after completion
-        else:
-            print(f"Goal not met: {goal['label']}")
+    # 1. Read state["current_cycle_goal"] into a variable called current_goal
+    current_goal = state.get("current_cycle_goal")
+
+    # 2. If current_goal exists and current_goal["completed"] is False:
+    if current_goal and not current_goal.get("completed", False):
+        # Look up the matching goal definition in GOALS by matching goal["id"]
+        goal_id = current_goal.get("id")
+        goal_def = None
+
+        for goal_type_list in GOALS.values():
+            for goal_candidate in goal_type_list:
+                if goal_candidate.get("id") == goal_id:
+                    goal_def = goal_candidate
+                    break
+            if goal_def:
+                break
+
+        # Call goal_def["check"](state). If True:
+        if goal_def and goal_def["check"](state):
+            # a. Call apply_goal_reward(player_obj, goal_def["reward"])
+            apply_goal_reward(player, goal_def["reward"])
+
+            # b. Set current_goal["completed"] = True
+            current_goal["completed"] = True
+
+            # c. Update state["current_cycle_goal"] = current_goal
+            state["current_cycle_goal"] = current_goal
+
+            # d. Add "goal_completed": True and "goal_label": goal_def["reward_label"]
+            response["goal_completed"] = True
+            response["goal_label"] = goal_def.get("reward_label")
+
+    # 3. At cycle reset (when a new 7-day cycle begins, i.e. day resets to 1):
+    if day == 1 and not state.get("current_cycle_goal"):
+        # Call pick_cycle_goal(player_obj, state["cycle"])
+        new_goal = pick_cycle_goal(player, cycle_number)
+        # Store the result as state["current_cycle_goal"] = {**new_goal, "completed": False}
+        state["current_cycle_goal"] = {**new_goal, "completed": False}
+
+    # Do NOT change the scoring logic below this comment. Only add goal
+    # checking before it and goal assignment at cycle reset.
+
+    return response

@@ -320,6 +320,15 @@ export type PlayerState = {
   day_log: DayLogEntry[];
   achievements: string[];
   milestone_ids: string[];
+  // Copilot: Add current_cycle_goal to the PlayerState TypeScript type.
+  // It should sit after the existing milestone_ids field.
+  current_cycle_goal: {
+    id: string;
+    type: "infra" | "lineup" | "score" | "genre";
+    label: string;
+    reward_label: string;
+    completed: boolean;
+  } | null;
   daily_challenge: DailyChallenge | null;
   minigame_last: string;
   streak: number;
@@ -368,6 +377,10 @@ export type SimResult = {
   new_milestones: Milestone[];
   tier_upgrade: { from: string; to: string; reputation_score: number } | null;
   state: { coins: number; xp: number; level: number; phase: number; festivals_run: number; cycle: number; day: number };
+  // Copilot: Also add goal_completed and goal_label to SimResult so the frontend
+  // can show a banner when the player finishes their cycle goal.
+  goal_completed?: boolean;
+  goal_label?: string | null;
 };
 
 export type Milestone = {

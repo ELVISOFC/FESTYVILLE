@@ -1,0 +1,144 @@
+{
+  "theme": "DARK",
+  "archetype": "7 (Electric & Neon) - Grounded Tycoon Mobile",
+  "domain": "Mobile Game UI - Music Festival Tycoon",
+  "colors": {
+    "background": {
+      "main": "#090A0F",
+      "surface": "#141724",
+      "surface_elevated": "#1F2336",
+      "modal_overlay": "rgba(0,0,0,0.85)"
+    },
+    "brand": {
+      "primary": "#FF0055",
+      "secondary": "#00FFFF",
+      "accent": "#FFD700"
+    },
+    "typography": {
+      "primary": "#FFFFFF",
+      "secondary": "#94A3B8",
+      "success": "#00FF66",
+      "warning": "#FF9900",
+      "error": "#FF0055"
+    },
+    "isometric_world": {
+      "grass_tile_base": "#0B2E1D",
+      "grass_tile_border": "#134D32",
+      "dirt_tile_base": "#3D1F0E",
+      "dirt_tile_border": "#5C3118",
+      "grid_lines": "rgba(255, 255, 255, 0.05)"
+    },
+    "building_categories": {
+      "stage": {
+        "base": "#990033",
+        "highlight": "#FF0055"
+      },
+      "vendor": {
+        "base": "#995C00",
+        "highlight": "#FF9900"
+      },
+      "utility": {
+        "base": "#009999",
+        "highlight": "#00FFFF"
+      },
+      "decor": {
+        "base": "#00993D",
+        "highlight": "#00FF66"
+      }
+    },
+    "simulation_grades": {
+      "S": "#FFD700",
+      "A": "#00FF66",
+      "B": "#00FFFF",
+      "C": "#FF9900",
+      "D": "#FF3366",
+      "F": "#660000"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Press Start 2P, Courier New, monospace",
+      "body": "Outfit, system-ui, sans-serif"
+    },
+    "hierarchy": {
+      "grade_display": {
+        "fontSize": 96,
+        "fontWeight": "900",
+        "letterSpacing": -2
+      },
+      "h1_title": {
+        "fontSize": 24,
+        "fontWeight": "800",
+        "textTransform": "uppercase"
+      },
+      "h2_subtitle": {
+        "fontSize": 18,
+        "fontWeight": "700"
+      },
+      "hud_stats": {
+        "fontSize": 16,
+        "fontWeight": "800"
+      },
+      "body_text": {
+        "fontSize": 14,
+        "fontWeight": "500"
+      },
+      "timer_badge": {
+        "fontSize": 10,
+        "fontWeight": "800",
+        "letterSpacing": 1,
+        "textTransform": "uppercase"
+      }
+    }
+  },
+  "layout_and_components": {
+    "top_hud": {
+      "style": "Floating absolute top-safe-area. Row-based distribution.",
+      "pills": "Fully rounded (borderRadius: 999), bg-black/60, 1px border border-white/10, blur background if possible. Icon left, white text right."
+    },
+    "bottom_navigation": {
+      "style": "Dark solid bar, no transparency to ground the UI. Height 80px.",
+      "active_state": "Neon tint applied to icon, subtle glow shadow."
+    },
+    "build_drawer": {
+      "style": "Bottom sheet modal, takes up bottom 40% of screen. bg-[#141724]. Top corners rounded (24px).",
+      "cards": "Squircle (16px radius). bg-[#1F2336]. 1px border. Shows programmatic 8-bit icon, Name, Cost (coin icon + num), Time (clock icon + num)."
+    },
+    "isometric_playfield": {
+      "tile_ratio": "2:1 width-to-height (e.g., 100px width, 50px height).",
+      "rendering_tip": "Draw a diamond for the base. Draw sprites anchoring at the diamond's bottom center. No image assets - use programmatic SVG paths or skewed View blocks to form pseudo-3D 8-bit prisms."
+    },
+    "construction_timer": {
+      "style": "Floating absolute badge above building center. Dark pill, neon text. Include tiny progress bar fill across the bottom edge of the pill."
+    },
+    "simulation_results_modal": {
+      "style": "Full screen dark overlay. Central container with glowing borders.",
+      "content": "Top: 'FESTIVAL RESULTS'. Middle: Giant letter grade S-F. Bottom: 5 horizontal progress bars for (Stage Score, Crowd Flow, Vendor Coverage, Utility, Aesthetic)."
+    }
+  },
+  "motion": {
+    "building_placement": "Spring bounce scale (0.8 to 1.0) on drop.",
+    "timer_tick": "Subtle scale pulse on the final 5 seconds.",
+    "results_reveal": "Sequence: Bars fill up first (staggered), short pause, giant Letter Grade stamps in with a spring animation and heavy haptic feedback.",
+    "button_press": "Scale down to 0.95 on active press."
+  },
+  "testing": {
+    "requirements": "All interactive and key informational elements MUST include a 'data-testid' attribute.",
+    "examples": [
+      "data-testid='hud-coin-balance'",
+      "data-testid='hud-xp-balance'",
+      "data-testid='btn-run-festival'",
+      "data-testid='build-drawer-card-stage'",
+      "data-testid='grid-tile-0-0'",
+      "data-testid='results-grade-S'"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "This is a React Native Expo application. Use standard React Native View/Text components and StyleSheet (or NativeWind if configured) instead of Web DOM elements.",
+    "Files should be generated as .js files, NOT .tsx as per constraints.",
+    "No external images are allowed. All visual elements, including the isometric tiles and pseudo-3D building sprites, must be drawn programmatically. Use react-native-svg or standard skewed Views.",
+    "Maintain the Tycoon aesthetic (simcity/clash of clans) but apply the neon/night festival color palette provided.",
+    "Ensure all components have 'data-testid' mapped correctly for automated testing.",
+    "Apply 'prefers-reduced-motion' fallbacks if using advanced Reanimated/Animated sequences, though basic React Native Animated springs are acceptable."
+  ]
+}

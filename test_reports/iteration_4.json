@@ -1,0 +1,32 @@
+{
+  "summary": "FestyVille iteration 4 (Menu + Planning Tutorial) tested end-to-end. Backend reset/delete endpoints pass 4/4 pytest cases. Frontend HUD menu button, /menu screen, all 5 action buttons (resume/new/reset/delete/replay-tutorial), save summary card, and TutorialModal first-time + replay flows verified on 390x844 mobile viewport. All happy paths green. One non-blocking 'duplicate testID' observation noted (due to Expo modal presentation keeping prior screen mounted on web).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "expo-router modal presentation", "issue": "When /menu (and /planning) are opened with presentation:'modal' on web, the underlying index screen stays mounted in DOM so testIDs like hud-open-menu and btn-run-festival match 2 elements. Functionally harmless (visible top instance receives clicks), but causes Playwright `.click` to flag 'Element is not visible' when targeting the underlying one. Recommend using .locator(...).first or .nth(0) with visibility filter for any future tests — or switch to default Stack presentation if true single-screen behavior is desired."}
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/v4_results.xml",
+    "/app/backend/tests/test_festyville_v4_menu.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend /state/{pid}/reset correctly preserves name and player_id, returns a fresh PlayerState (coins=1500, buildings=[], xp=0, level=1, phase=1, cycle=1, day=1, genre=null, lineup=[]). Uses upsert=True which handles the edge case of resetting a previously-deleted player.",
+    "Backend /state/{pid}/delete is a simple delete_one returning {ok:true, player_id}. The subsequent GET auto-recreates via get_or_create_state which is intended per spec. Verified delete actually removes the row by placing a building (coins<1500), deleting, then GET returns coins=1500 again.",
+    "Frontend api.deleteSave() correctly clears BOTH festyville.player_id and festyville.tutorial.planning_seen from AsyncStorage — so the next /planning visit will re-show the tutorial. api.newSave() also clears the tutorial flag, which is the right UX.",
+    "TutorialModal uses AsyncStorage key festyville.tutorial.planning_seen and renders nothing when seen='1'. Replay path = menu-replay-tutorial removes the key then router.replace('/planning'), and useEffect re-fires on mount. Verified working.",
+    "Menu screen is well-structured (~273 lines), confirm() wraps platform-specific dialog, busy state guards re-entrancy. Save card displays name/id/coins/xp/level/phase/cycle/day/genre/buildings count/last-grade as required.",
+    "HUD now has hud-open-menu as the first element of the first row — confirmed via code review and DOM inspection."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (4/4 v4 tests + v2 regressions still green)", "frontend": "100% (all listed flows pass on 390x844)"},
+  "seed_data_creation": "Backend tests create disposable TEST_p_* PIDs via uuid. Frontend tests inject TEST_p_v4_*, TEST_p_cont_*, TEST_p_tut_* into localStorage.festyville.player_id between page loads to simulate fresh players for tutorial/menu flows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Public URL: https://festival-builder-2.preview.emergentagent.com (EXPO_PUBLIC_BACKEND_URL). Backend tests need: export EXPO_PUBLIC_BACKEND_URL=$(grep '^EXPO_PUBLIC_BACKEND_URL=' /app/frontend/.env | cut -d= -f2) before pytest. AsyncStorage keys: festyville.player_id (string) and festyville.tutorial.planning_seen ('1' once seen). For fresh-player simulation on web: setItem player_id BEFORE goto/reload. When opening /menu directly (presentation modal), the underlying / screen remains mounted in DOM — Playwright will see duplicate testIDs; use locator(...).first or query within the modal-content container. The tutorial auto-shows on first /planning load only when AsyncStorage lacks the planning_seen key — replay = remove key then router.replace('/planning'). Reset API preserves name via existing-doc lookup, so renaming the player BEFORE reset and asserting name afterward is a good belt-and-braces test (covered in test_reset_wipes_progress_keeps_name).",
+  "rca_of_issue": "N/A — no failures."
+}

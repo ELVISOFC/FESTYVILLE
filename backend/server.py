@@ -1,5 +1,47 @@
 import random
 from typing import Optional, Dict, Any
+from fastapi import HTTPException
+
+# Copilot: Add a build slot cap system to server.py.
+# 
+# 1. Add this constant near the top of the file, after imports:
+SLOT_CAPS = {
+    1: {"build": 4,  "artist": 2},
+    2: {"build": 6,  "artist": 3},
+    3: {"build": 9,  "artist": 4},
+    4: {"build": 12, "artist": 5},
+}
+
+def get_caps(phase: int) -> dict:
+    """Get build and artist slot caps for a given phase."""
+    return SLOT_CAPS.get(phase, SLOT_CAPS[4])
+
+def state_with_caps(state: dict) -> dict:
+    """
+    Append slot cap info to state dict before returning to frontend.
+    
+    Returns state with added fields:
+      - build_cap: max buildings for this phase
+      - artist_cap: max artists for this phase
+      - build_slots_used: count of active (non-destroyed) buildings
+      - artist_slots_used: count of booked artists
+    """
+    phase = state.get("phase", 1)
+    caps = get_caps(phase)
+    
+    # Count active buildings (status != "destroyed")
+    build_slots_used = sum(1 for b in state.get("buildings", []) if b.get("status") != "destroyed")
+    
+    # Count booked artists
+    artist_slots_used = len(state.get("lineup", []))
+    
+    return {
+        **state,
+        "build_cap": caps["build"],
+        "artist_cap": caps["artist"],
+        "build_slots_used": build_slots_used,
+        "artist_slots_used": artist_slots_used,
+    }
 
 # Ensure PlayerState class includes current_cycle_goal
 class PlayerState:
@@ -185,3 +227,68 @@ def simulate(state: Dict[str, Any], cycle_number: int, day: int):
     # checking before it and goal assignment at cycle reset.
 
     return response
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SLOT CAP ENFORCEMENT: Place Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+# 
+# USAGE IN /place ENDPOINT (pseudo-code):
+#   @app.post("/state/{player_id}/place")
+#   async def place_building(player_id: str, body: PlaceRequest):
+#       state = get_state(player_id)
+#       
+#       # SLOT CAP ENFORCEMENT — BEFORE adding building
+#       caps = get_caps(state["phase"])
+#       build_slots_used = sum(1 for b in state.get("buildings", []) if b.get("status") != "destroyed")
+#       if build_slots_used >= caps["build"]:
+#           raise HTTPException(
+#               status_code=400,
+#               detail=f"Build slots full — {caps['build']} max at Phase {state['phase']}. Unlock more by reaching the next phase."
+#           )
+#       
+#       # ... rest of place logic ...
+#       
+#       return state_with_caps(state)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SLOT CAP ENFORCEMENT: Book Artist Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+# 
+# USAGE IN /book_artist ENDPOINT (pseudo-code):
+#   @app.post("/state/{player_id}/book_artist")
+#   async def book_artist(player_id: str, body: BookArtistRequest):
+#       state = get_state(player_id)
+#       
+#       # SLOT CAP ENFORCEMENT — BEFORE booking artist
+#       caps = get_caps(state["phase"])
+#       artist_slots_used = len(state.get("lineup", []))
+#       if artist_slots_used >= caps["artist"]:
+#           raise HTTPException(
+#               status_code=400,
+#               detail=f"Artist slots full — {caps['artist']} max at Phase {state['phase']}."
+#           )
+#       
+#       # ... rest of book logic ...
+#       
+#       return state_with_caps(state)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STATE RETURN: All endpoints that return state should wrap with state_with_caps()
+# ─────────────────────────────────────────────────────────────────────────────
+# 
+# ENDPOINTS TO UPDATE:
+#   - GET /state/{player_id}
+#   - POST /state/{player_id}/place
+#   - POST /state/{player_id}/speedup
+#   - POST /state/{player_id}/demolish
+#   - POST /state/{player_id}/book_artist
+#   - POST /state/{player_id}/unbook_artist
+#   - POST /state/{player_id}/set_genre
+#   - POST /state/{player_id}/advance_day
+#   - POST /state/{player_id}/start_cycle
+#   - POST /state/{player_id}/simulate (include goal_completed, goal_label + slot caps)
+#   - POST /state/{player_id}/minigame_reward
+#   - POST /state/{player_id}/rename
+#   - POST /state/{player_id}/reset
+#
+# WRAP EACH RETURN: return state_with_caps(state)

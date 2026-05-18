@@ -141,6 +141,41 @@ function alertOrLog(title: string, msg: string) {
 }
 
 // ---------------------------------------------------------------------------
+// CycleGoalCard Component
+// ---------------------------------------------------------------------------
+
+type CycleGoalCardProps = {
+  goal: PlayerState["current_cycle_goal"];
+};
+
+function CycleGoalCard({ goal }: CycleGoalCardProps) {
+  if (!goal) return null;
+
+  const goalTypeColors: Record<string, string> = {
+    infra: "#FF9900",
+    lineup: "#A78BFA",
+    score: "#00FF66",
+    genre: "#FFD700",
+  };
+
+  const borderColor = goalTypeColors[goal.type] || "#999999";
+  const isDone = goal.completed;
+
+  return (
+    <View style={[styles.cycleGoalCard, { borderColor }]}>
+      <View style={styles.cycleGoalHeader}>
+        <Text style={styles.cycleGoalLabel}>
+          CYCLE GOAL · {goal.type.toUpperCase()}
+        </Text>
+        {isDone && <Text style={styles.cycleGoalDone}>✓ DONE</Text>}
+      </View>
+      <Text style={styles.cycleGoalText}>{goal.label}</Text>
+      <Text style={styles.cycleGoalReward}>Reward: {goal.reward_label}</Text>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Planning screen
 // ---------------------------------------------------------------------------
 
@@ -315,6 +350,9 @@ export default function Planning() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 200 }}>
+
+        {/* Cycle Goal Card */}
+        <CycleGoalCard goal={state.current_cycle_goal} />
 
         {/* Daily Challenge */}
         {ch && (
@@ -625,6 +663,41 @@ const styles = StyleSheet.create({
   iconBtn: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   title: { color: COLORS.textPrimary, fontWeight: "900", letterSpacing: 4, fontSize: 14 },
   subtitle: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 1 },
+  cycleGoalCard: {
+    backgroundColor: "#1a2030",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  cycleGoalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  cycleGoalLabel: {
+    fontWeight: "900",
+    fontSize: 9,
+    letterSpacing: 1.5,
+    color: "rgba(255,255,255,0.7)",
+  },
+  cycleGoalDone: {
+    color: "#00FF66",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 1,
+  },
+  cycleGoalText: {
+    color: COLORS.textPrimary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  cycleGoalReward: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
   challengeCard: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: "#1a2030", borderRadius: 12, padding: 12, marginBottom: 14,

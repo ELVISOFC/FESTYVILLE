@@ -24,7 +24,7 @@ def apply_genre_bonus(breakdown: dict, genre: str, buildings: list) -> dict:
             bonus_missed = "Indie condition failed: crowd_flow_raw <= 70"
 
     elif genre == "EDM":
-        stage_count = sum(1 for b in buildings if b.get("type") == "stage")
+        stage_count = sum(1 for b in buildings if b.get("category") == "stage")
         if stage_count == 1 and breakdown.get("stage_score_raw", 0) > 20:
             breakdown["stage_score"] = breakdown.get("stage_score", 0) * 1.20
             bonus_applied = True
@@ -33,7 +33,7 @@ def apply_genre_bonus(breakdown: dict, genre: str, buildings: list) -> dict:
             bonus_missed = "EDM condition failed: not exactly 1 stage or stage_score_raw <= 20"
 
     elif genre == "Rock":
-        stage_count = sum(1 for b in buildings if b.get("type") == "stage")
+        stage_count = sum(1 for b in buildings if b.get("category") == "stage")
         if stage_count > 1:
             bonus_points = min(3, (stage_count - 1) * 3)
             breakdown["stage_score"] = breakdown.get("stage_score", 0) + bonus_points
@@ -43,7 +43,7 @@ def apply_genre_bonus(breakdown: dict, genre: str, buildings: list) -> dict:
             bonus_missed = "Rock condition failed: stage_count <= 1"
     
     elif genre == "HipHop":
-        vendor_subtypes = {b.get("subtype") for b in buildings if b.get("type") == "vendor"}
+        vendor_subtypes = {b.get("subtype") for b in buildings if b.get("category") == "vendor"}
         if len(vendor_subtypes) >= 3:
             breakdown["vendor_coverage"] = breakdown.get("vendor_coverage", 0) * 1.15
             bonus_applied = True

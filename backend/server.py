@@ -307,6 +307,8 @@ class PlayerState(BaseModel):
     reputation_score: int = 0
     legacy_tier: str = "unknown"
     genre_identity: Optional[str] = None
+    # Specialization path chosen once at save-start — persists forever on this save.
+    specialization: Optional[str] = None
     daily_challenge: Optional[Dict[str, Any]] = None
     minigame_last: str = ""
     streak: int = 0
@@ -478,11 +480,7 @@ def apply_goal_reward(state: dict, reward: dict) -> dict:
             state["genre_affinity"].get(genre, 0.0) + reward["genre_affinity_bonus"])
     return state
 
-    if score >= 10000: return "legendary"
-    if score >= 5000:  return "national"
-    if score >= 2000:  return "regional"
-    if score >= 500:   return "local"
-    return "unknown"
+
 
 # Star rating derived from letter grade. S=5 ★ … F=0 ★
 GRADE_STARS: Dict[str, int] = {"S": 5, "A": 4, "B": 3, "C": 2, "D": 1, "F": 0}
@@ -580,6 +578,7 @@ async def get_or_create_state(player_id: str) -> Dict[str, Any]:
         "daily_challenge": None, "minigame_last": "", "streak": 0,
         "genre_affinity": {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0},
         "reputation_score": 0, "legacy_tier": "unknown", "genre_identity": None,
+        "specialization": None,
     }
     missing = {k: v for k, v in defaults.items() if k not in doc}
     if missing:
@@ -1027,6 +1026,30 @@ async def simulate(player_id: str, req: SimulateRequest):
     client_composite = float(req.client_score.composite)
     if abs(client_composite - composite) >= 10:
         raise HTTPException(400, "Score mismatch: client value rejected")
+
+    # ── Specialization passive bonus (server-only, applied after cheat check) ──
+    # Applied to raw dimensions then composite is recomputed so the leaderboard
+    # and grade reflect the bonus. The bonus is intentionally small so the base
+    # loop still matters; client scoring ignores it (only used for cheat check).
+    spec = state.get("specialization")
+    if spec == "producer":
+        stage_score = min(100, stage_score + 8)
+    elif spec == "promoter":
+        vendor_coverage = min(100, vendor_coverage + 8)
+    elif spec == "operator":
+        penalty = max(0, penalty // 2)   # halves unfinished-build penalty
+    elif spec == "curator":
+        aesthetic = min(100, aesthetic + 8)
+    if spec in ("producer", "promoter", "operator", "curator"):
+        composite = max(0, int(
+            stage_score   * weights["stage"]
+            + crowd_flow  * weights["crowd_flow"]
+            + vendor_coverage * weights["vendor"]
+            + utility_coverage * weights["utility"]
+            + aesthetic   * weights["aesthetic"]
+            - penalty + genre_bonus + chemistry_bonus
+        ))
+
     grade = grade_from_score(composite)
 
     coin_reward = int(composite * 15 + 200)
@@ -1182,6 +1205,23 @@ async def delete_player(player_id: str):
     await db.players.delete_one({"player_id": player_id})
     return {"ok": True, "player_id": player_id}
 
+class SetSpecializationRequest(BaseModel):
+    path: str  # "producer" | "promoter" | "operator" | "curator"
+
+VALID_SPECIALIZATIONS = {"producer", "promoter", "operator", "curator"}
+
+@api_router.put("/state/{player_id}/specialization", dependencies=[Depends(require_player)])
+async def set_specialization(player_id: str, body: SetSpecializationRequest):
+    if body.path not in VALID_SPECIALIZATIONS:
+        raise HTTPException(400, f"Invalid specialization. Choose from: {', '.join(sorted(VALID_SPECIALIZATIONS))}")
+    state = await get_or_create_state(player_id)
+    if state.get("specialization"):
+        raise HTTPException(400, "Specialization is already set and cannot be changed")
+    state["specialization"] = body.path
+    await db.players.update_one({"player_id": player_id}, {"$set": {"specialization": body.path}})
+    state.pop("_id", None)
+    return state
+
 @api_router.post("/state/{player_id}/rename", dependencies=[Depends(require_player)])
 async def rename(player_id: str, body: Dict[str, str]):
     name = (body.get("name") or "").strip()[:20]
@@ -1206,117 +1246,3 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SLOT_CAPS = {
-    1: {"build": 4, "artist": 2},
-    2: {"build": 6, "artist": 3},
-    3: {"build": 9, "artist": 4},
-    4: {"build": 12, "artist": 5},
-}
-
-
-def get_caps(phase: int) -> dict:
-    return SLOT_CAPS.get(phase, SLOT_CAPS[4])
-
-
-def state_with_caps(state: dict) -> dict:
-    phase = state.get("phase", 1)
-    caps = get_caps(phase)
-    build_slots_used = sum(1 for b in state.get("buildings", []) if b.get("status") != "destroyed")
-    artist_slots_used = len(state.get("lineup", []))
-    return {
-        **state,
-        "build_cap": caps["build"],
-        "artist_cap": caps["artist"],
-        "build_slots_used": build_slots_used,
-        "artist_slots_used": artist_slots_used,
-    }
-
-
-GOALS = {
-    "infra": [
-        {
-            "id": "infra_1",
-            "type": "infra",
-            "label": "Build at least 2 vendor buildings.",
-            "check": lambda state: sum(1 for b in state.get("buildings", []) if b.get("type") == "vendor") >= 2,
-            "reward": {"coins": 100, "reputation": 10},
-            "reward_label": "+100 coins, +10 reputation",
-        },
-        {
-            "id": "infra_2",
-            "type": "infra",
-            "label": "Add a stage with a rating > 15.",
-            "check": lambda state: any(b.get("type") == "stage" and b.get("rating", 0) > 15 for b in state.get("buildings", [])),
-            "reward": {"coins": 150, "reputation": 15},
-            "reward_label": "+150 coins, +15 reputation",
-        },
-    ],
-    "lineup": [
-        {
-            "id": "lineup_1",
-            "type": "lineup",
-            "label": "Add an Indie artist.",
-            "check": lambda state: any(a.get("genre") == "Indie" for a in state.get("lineup", [])),
-            "reward": {"coins": 50, "reputation": 5},
-            "reward_label": "+50 coins, +5 reputation",
-        },
-        {
-            "id": "lineup_2",
-            "type": "lineup",
-            "label": "Book at least 3 artists.",
-            "check": lambda state: len(state.get("lineup", [])) >= 3,
-            "reward": {"coins": 120, "reputation": 8},
-            "reward_label": "+120 coins, +8 reputation",
-        },
-    ],
-    "score": [
-        {
-            "id": "score_1",
-            "type": "score",
-            "label": "Achieve a crowd_flow > 60.",
-            "check": lambda state: state.get("crowd_flow", 0) > 60,
-            "reward": {"coins": 80, "reputation": 10},
-            "reward_label": "+80 coins, +10 reputation",
-        },
-        {
-            "id": "score_2",
-            "type": "score",
-            "label": "Maintain stage_score > 40.",
-            "check": lambda state: state.get("stage_score", 0) > 40,
-            "reward": {"coins": 100, "reputation": 12},
-            "reward_label": "+100 coins, +12 reputation",
-        },
-    ],
-    "genre": [
-        {
-            "id": "genre_1",
-            "type": "genre",
-            "label": "Increase affinity for EDM by 5.",
-            "check": lambda state: state.get("genre_affinity", {}).get("EDM", 0) >= 5,
-            "reward": {"reputation": 15, "genre_affinity": {"EDM": 1}},
-            "reward_label": "+15 reputation, +1 EDM affinity",
-        },
-        {
-            "id": "genre_2",
-            "type": "genre",
-            "label": "Increase affinity for Rock by 5.",
-            "check": lambda state: state.get("genre_affinity", {}).get("Rock", 0) >= 5,
-            "reward": {"reputation": 15, "genre_affinity": {"Rock": 1}},
-            "reward_label": "+15 reputation, +1 Rock affinity",
-        },
-    ],
-}
-
-
-def pick_cycle_goal(state, cycle_number: int) -> dict:
-    goal_types = ["infra", "lineup", "score", "genre"]
-    selected_type = goal_types[cycle_number % len(goal_types)]
-    random.seed(f"{state.player_id}_{cycle_number}")
-    return random.choice(GOALS[selected_type])
-
-
-def apply_goal_reward(state, reward: dict):
-    state.coins += reward.get("coins", 0)
-    state.reputation += reward.get("reputation", 0)
-    for genre, points in reward.get("genre_affinity", {}).items():
-        state.genre_affinity[genre] = state.genre_affinity.get(genre, 0) + points

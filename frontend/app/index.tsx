@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,6 +27,13 @@ import SimulationModal from "../src/components/SimulationModal";
 import SimulationOverlay from "../src/components/SimulationOverlay";
 import TierUpgradeModal from "../src/components/TierUpgradeModal";
 import type { LegacyTier } from "../src/legacy";
+
+const SPEC_CHOICES = [
+  { path: "producer", label: "Producer", emoji: "🎛", color: "#FF0055", bonus: "+ Stage Score",     detail: "Your stages hit harder" },
+  { path: "promoter", label: "Promoter", emoji: "📣", color: "#FF9900", bonus: "+ Vendor Score",    detail: "Your vendors pull bigger crowds" },
+  { path: "operator", label: "Operator", emoji: "⚙️", color: "#00FFFF", bonus: "½ Build Penalty",   detail: "Unfinished builds hurt less" },
+  { path: "curator",  label: "Curator",  emoji: "🎨", color: "#FFD700", bonus: "+ Aesthetic Score", detail: "Your decor wows the crowd" },
+] as const;
 
 function alertOrLog(title: string, msg: string) {
   if (Platform.OS === "web") {
@@ -69,6 +77,21 @@ export default function Index() {
     Analytics.screenView("main_game");
   }, []);
 
+  // Auto-show specialization picker for saves that haven't chosen a path yet.
+  useEffect(() => {
+    if (state && !state.specialization) setShowSpecPicker(true);
+  }, [state?.specialization]);
+
+  const handlePickSpec = async (path: string) => {
+    try {
+      const s = await api.setSpecialization(path);
+      setState(s as PlayerState);
+      setShowSpecPicker(false);
+    } catch (e: any) {
+      alertOrLog("Error", e.message || String(e));
+    }
+  };
+
   const refreshState = useCallback(async () => {
     try {
       const s = await api.state();
@@ -83,6 +106,7 @@ export default function Index() {
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  const [showSpecPicker, setShowSpecPicker] = useState(false);
   const hydratedFromCacheRef = useRef(false);
 
   useEffect(() => {
@@ -352,6 +376,7 @@ export default function Index() {
           day={state.day}
           cycle={state.cycle}
           genre={state.genre}
+          specialization={state.specialization ?? null}
           onOpenLeaderboard={() => router.push("/leaderboard")}
           onOpenPlanning={() => router.push("/planning")}
           onOpenMenu={() => router.push("/menu")}
@@ -495,6 +520,33 @@ export default function Index() {
         result={simResult}
         onClose={() => setSimOpen(false)}
       />
+
+      {/* ── Specialization Picker ── */}
+      <Modal visible={showSpecPicker} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.specOverlay}>
+          <View style={styles.specModal}>
+            <Text style={styles.specTitle}>CHOOSE YOUR PATH</Text>
+            <Text style={styles.specSubtitle}>
+              Your specialization gives a permanent passive bonus. Chosen once — choose wisely.
+            </Text>
+            <View style={styles.specGrid}>
+              {SPEC_CHOICES.map((s) => (
+                <TouchableOpacity
+                  key={s.path}
+                  style={[styles.specCard, { borderColor: s.color + "66" }]}
+                  onPress={() => handlePickSpec(s.path)}
+                  testID={`spec-choice-${s.path}`}
+                >
+                  <Text style={styles.specCardEmoji}>{s.emoji}</Text>
+                  <Text style={[styles.specCardLabel, { color: s.color }]}>{s.label.toUpperCase()}</Text>
+                  <Text style={styles.specCardBonus}>{s.bonus}</Text>
+                  <Text style={styles.specCardDetail}>{s.detail}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -572,5 +624,69 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 3,
     fontSize: 16,
+  },
+  specOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.88)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  specModal: {
+    width: "100%",
+    maxWidth: 440,
+    backgroundColor: "#0e0f1a",
+    borderRadius: 18,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+  },
+  specTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 3,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  specSubtitle: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 22,
+    lineHeight: 18,
+  },
+  specGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "center",
+    width: "100%",
+  },
+  specCard: {
+    width: "46%",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    gap: 4,
+  },
+  specCardEmoji: { fontSize: 30, marginBottom: 6 },
+  specCardLabel: { fontWeight: "900", fontSize: 13, letterSpacing: 1.5 },
+  specCardBonus: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginTop: 4,
+  },
+  specCardDetail: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 10,
+    textAlign: "center",
+    lineHeight: 14,
   },
 });

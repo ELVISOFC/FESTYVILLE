@@ -242,6 +242,10 @@ export const api = {
     const pid = await getPlayerId();
     return req(`/state/${pid}/minigame_reward`, { method: "POST", body: JSON.stringify({ game, score }) });
   },
+  setSpecialization: async (path: string) => {
+    const pid = await getPlayerId();
+    return req(`/state/${pid}/specialization`, { method: "PUT", body: JSON.stringify({ path }) });
+  },
   leaderboard: () => req("/leaderboard", {}, false),
 };
 
@@ -336,6 +340,7 @@ export type PlayerState = {
   reputation_score: number;
   legacy_tier: "unknown" | "local" | "regional" | "national" | "legendary";
   genre_identity: string | null;
+  specialization: string | null;
   server_time: number;
   last_event?: DayLogEntry;
   new_achievements?: Achievement[];

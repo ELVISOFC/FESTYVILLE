@@ -38,6 +38,10 @@ export default function HUD(props: Props) {
   const { coins, xp, level, phase, activeBuilds, day, cycle, genre, specialization, buildCap, artistCap, buildSlotsUsed, artistSlotsUsed, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
   const spec = specialization ? SPEC_META[specialization] : null;
   const dayColor = day >= 7 ? COLORS.primary : day === 1 ? COLORS.warning : COLORS.accent;
+  
+  const buildSlotColor = buildCap === 0 ? COLORS.textSecondary : buildSlotsUsed >= buildCap ? COLORS.danger : buildSlotsUsed >= buildCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
+  const artistSlotColor = artistCap === 0 ? COLORS.textSecondary : artistSlotsUsed >= artistCap ? COLORS.danger : artistSlotsUsed >= artistCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
+  
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
@@ -57,7 +61,7 @@ export default function HUD(props: Props) {
         {/* Build Slots */}
         <Pill
           icon="cube"
-          color={buildSlotsUsed >= buildCap ? COLORS.danger : buildSlotsUsed >= buildCap * 0.8 ? COLORS.warning : COLORS.textSecondary}
+          color={buildSlotColor}
           label={`${buildSlotsUsed}/${buildCap}`}
           testID="hud-build-slots"
         />
@@ -65,7 +69,7 @@ export default function HUD(props: Props) {
         {/* Artist Slots */}
         <Pill
           icon="musical-notes"
-          color={artistSlotsUsed >= artistCap ? COLORS.danger : artistSlotsUsed >= artistCap * 0.8 ? COLORS.warning : COLORS.textSecondary}
+          color={artistSlotColor}
           label={`${artistSlotsUsed}/${artistCap}`}
           testID="hud-artist-slots"
         />

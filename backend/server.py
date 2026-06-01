@@ -185,7 +185,7 @@ MICRO_EVENTS: List[Dict[str, Any]] = [
     {"text": "Sound engineers arrive early — setup bonus","coins": 80, "xp": 18, "character_id": "baz"},
     {"text": "Stage lighting upgraded for free",         "coins": 50,  "xp": 20, "character_id": "baz"},
     {"text": "Secret surprise performance locked in",    "coins": 110, "xp": 25, "character_id": "baz"},
-    {"text": "Monitor mix perfected — crowd will love it","coins": 60, "xp": 22, "character_id": "baz"},
+    {"text": "Monitor mix perfected — crowd will love it","coins": 60,  "xp": 22, "character_id": "baz"},
     # Frank — health & safety
     {"text": "Health inspection passed with flying colors","coins": 80,"xp": 10, "character_id": "frank"},
     {"text": "Extra med kit donated by a local clinic",  "coins": 40,  "xp": 12, "character_id": "frank"},
@@ -1005,6 +1005,26 @@ async def simulate(player_id: str, req: SimulateRequest):
     # Chemistry bonus from lineup genre pairings (0–10)
     lineup_genres = [ARTISTS_BY_ID[a]["genre"] for a in lineup if a in ARTISTS_BY_ID]
     chemistry_bonus = compute_chemistry(lineup_genres)
+
+    # Apply genre-specific layout bonuses (Indie, EDM, Rock, HipHop, Pop)
+    if festival_genre and festival_genre != "mixed":
+        _breakdown = {
+            "crowd_flow_raw":      crowd_flow,
+            "stage_score_raw":     stage_score,
+            "vendor_coverage_raw": vendor_coverage,
+            "aesthetic_raw":       aesthetic,
+            "crowd_flow":          crowd_flow,
+            "stage_score":         stage_score,
+            "vendor_coverage":     vendor_coverage,
+            "utility_coverage":    utility_coverage,
+            "aesthetic":           aesthetic,
+        }
+        _breakdown = apply_genre_bonus(_breakdown, festival_genre, state["buildings"])
+        crowd_flow        = _breakdown.get("crowd_flow",        crowd_flow)
+        stage_score       = _breakdown.get("stage_score",       stage_score)
+        vendor_coverage   = _breakdown.get("vendor_coverage",   vendor_coverage)
+        utility_coverage  = _breakdown.get("utility_coverage",  utility_coverage)
+        aesthetic         = _breakdown.get("aesthetic",         aesthetic)
 
     weights = {"stage": 0.30, "crowd_flow": 0.20, "vendor": 0.20, "utility": 0.15, "aesthetic": 0.15}
     composite = (

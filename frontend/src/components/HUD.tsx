@@ -13,6 +13,10 @@ type Props = {
   cycle: number;
   genre: string | null;
   specialization: string | null;
+  buildCap: number;
+  artistCap: number;
+  buildSlotsUsed: number;
+  artistSlotsUsed: number;
   onOpenLeaderboard: () => void;
   onOpenPlanning: () => void;
   onOpenMenu: () => void;
@@ -31,9 +35,13 @@ const GENRE_TINT: Record<string, string> = {
 };
 
 export default function HUD(props: Props) {
-  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, specialization, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
+  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, specialization, buildCap, artistCap, buildSlotsUsed, artistSlotsUsed, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
   const spec = specialization ? SPEC_META[specialization] : null;
   const dayColor = day >= 7 ? COLORS.primary : day === 1 ? COLORS.warning : COLORS.accent;
+  
+  const buildSlotColor = buildCap === 0 ? COLORS.textSecondary : buildSlotsUsed >= buildCap ? COLORS.danger : buildSlotsUsed >= buildCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
+  const artistSlotColor = artistCap === 0 ? COLORS.textSecondary : artistSlotsUsed >= artistCap ? COLORS.danger : artistSlotsUsed >= artistCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
+  
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
@@ -49,6 +57,23 @@ export default function HUD(props: Props) {
           label={`${activeBuilds}`}
           testID="hud-active-builds"
         />
+
+        {/* Build Slots */}
+        <Pill
+          icon="cube"
+          color={buildSlotColor}
+          label={`${buildSlotsUsed}/${buildCap}`}
+          testID="hud-build-slots"
+        />
+
+        {/* Artist Slots */}
+        <Pill
+          icon="musical-notes"
+          color={artistSlotColor}
+          label={`${artistSlotsUsed}/${artistCap}`}
+          testID="hud-artist-slots"
+        />
+
         <TouchableOpacity onPress={onOpenLegacy} style={styles.pill} testID="hud-open-legacy">
           <Ionicons name="ribbon" size={16} color={COLORS.primary} style={{ marginRight: 6 }} />
           <Text style={[styles.pillText, { color: COLORS.primary }]}>LEGACY</Text>

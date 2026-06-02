@@ -37,95 +37,107 @@ const GENRE_TINT: Record<string, string> = {
 export default function HUD(props: Props) {
   const { coins, xp, level, phase, activeBuilds, day, cycle, genre, specialization, buildCap, artistCap, buildSlotsUsed, artistSlotsUsed, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
   const spec = specialization ? SPEC_META[specialization] : null;
-  const dayColor = day >= 7 ? COLORS.primary : day === 1 ? COLORS.warning : COLORS.accent;
   
   const buildSlotColor = buildCap === 0 ? COLORS.textSecondary : buildSlotsUsed >= buildCap ? COLORS.danger : buildSlotsUsed >= buildCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
   const artistSlotColor = artistCap === 0 ? COLORS.textSecondary : artistSlotsUsed >= artistCap ? COLORS.danger : artistSlotsUsed >= artistCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
   
   return (
-    <View style={styles.wrap}>
-      <View style={styles.row}>
-        <TouchableOpacity onPress={onOpenMenu} style={[styles.pill, styles.iconBtn]} testID="hud-open-menu">
+    <View style={styles.root}>
+      {/* ── TOP ROW: Resources ── */}
+      <View style={styles.topRow}>
+        <TouchableOpacity onPress={onOpenMenu} style={styles.iconButton} testID="hud-open-menu">
           <Ionicons name="menu" size={20} color={COLORS.textPrimary} />
         </TouchableOpacity>
-        <Pill icon="cash" color={COLORS.accent} label={formatNum(coins)} testID="hud-coin-balance" />
-        <Pill icon="flash" color={COLORS.secondary} label={`${xp} XP`} testID="hud-xp-balance" />
-        <Pill icon="trophy" color={COLORS.primary} label={`Lv ${level} · P${phase}`} testID="hud-level-phase" />
-        <Pill
-          icon="hammer"
-          color={activeBuilds > 0 ? COLORS.warning : COLORS.textSecondary}
-          label={`${activeBuilds}`}
-          testID="hud-active-builds"
-        />
-
-        {/* Build Slots */}
-        <Pill
-          icon="cube"
-          color={buildSlotColor}
-          label={`${buildSlotsUsed}/${buildCap}`}
-          testID="hud-build-slots"
-        />
-
-        {/* Artist Slots */}
-        <Pill
-          icon="musical-notes"
-          color={artistSlotColor}
-          label={`${artistSlotsUsed}/${artistCap}`}
-          testID="hud-artist-slots"
-        />
-
-        <TouchableOpacity onPress={onOpenLegacy} style={styles.pill} testID="hud-open-legacy">
-          <Ionicons name="ribbon" size={16} color={COLORS.primary} style={{ marginRight: 6 }} />
-          <Text style={[styles.pillText, { color: COLORS.primary }]}>LEGACY</Text>
+        
+        <Text style={styles.stat} testID="hud-level">Lv {level}</Text>
+        
+        <View style={styles.spacer} />
+        
+        <View style={styles.resourceGroup}>
+          <Ionicons name="cash" size={14} color={COLORS.accent} />
+          <Text style={[styles.stat, { color: COLORS.accent, marginLeft: 4 }]} testID="hud-coin-balance">
+            {formatNum(coins)}
+          </Text>
+        </View>
+        
+        <View style={styles.resourceGroup}>
+          <Ionicons name="flash" size={14} color={COLORS.secondary} />
+          <Text style={[styles.stat, { color: COLORS.secondary, marginLeft: 4 }]} testID="hud-xp-balance">
+            {xp}
+          </Text>
+        </View>
+        
+        <View style={styles.spacer} />
+        
+        <TouchableOpacity onPress={onOpenLegacy} style={styles.iconButton} testID="hud-open-legacy">
+          <Ionicons name="ribbon" size={16} color={COLORS.primary} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={onOpenLeaderboard} style={[styles.pill, styles.iconBtn]} testID="hud-open-leaderboard">
-          <Ionicons name="podium" size={18} color={COLORS.accent} />
+        
+        <TouchableOpacity onPress={onOpenLeaderboard} style={styles.iconButton} testID="hud-open-leaderboard">
+          <Ionicons name="podium" size={16} color={COLORS.accent} />
         </TouchableOpacity>
       </View>
-      <View style={[styles.row, { marginTop: 8 }]}>
-        <TouchableOpacity
-          style={[styles.pill, { borderColor: dayColor + "AA" }]}
-          onPress={onOpenPlanning}
-          testID="hud-day-chip"
-        >
-          <Ionicons name="calendar" size={16} color={dayColor} style={{ marginRight: 6 }} />
-          <Text style={styles.pillText}>
-            C{cycle} · Day {day}/7
-          </Text>
+      
+      <View style={styles.divider} />
+      
+      {/* ── MIDDLE ROW: Festival Info ── */}
+      <View style={styles.middleRow}>
+        <TouchableOpacity onPress={onOpenPlanning} style={styles.infoChip} testID="hud-day-chip">
+          <Text style={styles.chipText}>Day {day}/7</Text>
+          <Text style={[styles.chipText, { fontSize: 12, color: COLORS.textSecondary }]}>C{cycle}</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.pill, genre ? { borderColor: (GENRE_TINT[genre] || COLORS.accent) + "AA" } : null]}
-          onPress={onOpenPlanning}
-          testID="hud-genre-chip"
-        >
-          <Ionicons name="musical-notes" size={16} color={genre ? (GENRE_TINT[genre] || COLORS.accent) : COLORS.textSecondary} style={{ marginRight: 6 }} />
-          <Text style={[styles.pillText, !genre && { color: COLORS.textSecondary, fontStyle: "italic" }]}>
-            {genre ? genre.toUpperCase() : "Pick genre"}
-          </Text>
-        </TouchableOpacity>
-        {spec && (
-          <View style={[styles.pill, { borderColor: spec.color + "88" }]} testID="hud-spec-pill">
-            <Text style={{ fontSize: 13, marginRight: 4 }}>{spec.emoji}</Text>
-            <Text style={[styles.pillText, { color: spec.color, fontSize: 12 }]}>{spec.short}</Text>
-          </View>
+        
+        <View style={styles.chipDivider} />
+        
+        {genre ? (
+          <TouchableOpacity onPress={onOpenPlanning} style={styles.infoChip} testID="hud-genre-chip">
+            <Text style={[styles.chipText, { color: GENRE_TINT[genre] || COLORS.accent }]}>
+              {genre.toUpperCase()}
+            </Text>
+            <Ionicons name="musical-notes" size={12} color={GENRE_TINT[genre] || COLORS.accent} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={onOpenPlanning} style={styles.infoChip} testID="hud-genre-chip">
+            <Text style={[styles.chipText, { color: COLORS.textSecondary, fontStyle: "italic" }]}>
+              Pick genre
+            </Text>
+          </TouchableOpacity>
         )}
-        <TouchableOpacity
-          style={[styles.pill, styles.iconBtn]}
-          onPress={onOpenPlanning}
-          testID="hud-open-planning"
-        >
+        
+        <View style={styles.chipDivider} />
+        
+        {spec && (
+          <>
+            <View style={styles.infoChip} testID="hud-spec-pill">
+              <Text style={{ fontSize: 12, marginRight: 2 }}>{spec.emoji}</Text>
+              <Text style={[styles.chipText, { color: spec.color, fontSize: 11 }]}>
+                {spec.short}
+              </Text>
+            </View>
+            <View style={styles.chipDivider} />
+          </>
+        )}
+        
+        <View style={[styles.infoChip, { borderColor: buildSlotColor + "44" }]} testID="hud-build-slots">
+          <Text style={[styles.chipText, { color: buildSlotColor, fontSize: 11 }]}>
+            {buildSlotsUsed}/{buildCap}
+          </Text>
+          <Ionicons name="cube" size={11} color={buildSlotColor} style={{ marginLeft: 2 }} />
+        </View>
+        
+        <View style={styles.chipDivider} />
+        
+        <View style={[styles.infoChip, { borderColor: artistSlotColor + "44" }]} testID="hud-artist-slots">
+          <Text style={[styles.chipText, { color: artistSlotColor, fontSize: 11 }]}>
+            {artistSlotsUsed}/{artistCap}
+          </Text>
+          <Ionicons name="musical-notes" size={11} color={artistSlotColor} style={{ marginLeft: 2 }} />
+        </View>
+        
+        <TouchableOpacity onPress={onOpenPlanning} style={styles.iconButton} testID="hud-open-planning">
           <Ionicons name="albums" size={16} color={COLORS.secondary} />
         </TouchableOpacity>
       </View>
-    </View>
-  );
-}
-
-function Pill({ icon, color, label, testID }: { icon: any; color: string; label: string; testID?: string }) {
-  return (
-    <View style={styles.pill} testID={testID}>
-      <Ionicons name={icon} size={16} color={color} style={{ marginRight: 6 }} />
-      <Text style={styles.pillText}>{label}</Text>
     </View>
   );
 }
@@ -137,20 +149,69 @@ function formatNum(n: number) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 12, alignItems: "center" },
-  row: {
+  root: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    height: 28,
+  },
+  middleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    height: 24,
+    marginTop: 6,
+    gap: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginVertical: 4,
+  },
+  stat: {
+    color: COLORS.textPrimary,
+    fontWeight: "800",
+    fontSize: 13,
+    letterSpacing: 0.5,
+  },
+  resourceGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  spacer: {
+    flex: 1,
+  },
+  iconButton: {
+    padding: 6,
+  },
+  infoChip: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    flexWrap: "wrap",
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 4,
+    borderWidth: 0.5,
+    borderColor: "rgba(255,255,255,0.12)",
+    gap: 2,
   },
-  pill: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  chipText: {
+    color: COLORS.textPrimary,
+    fontWeight: "700",
+    fontSize: 12,
+    letterSpacing: 0.3,
   },
-  pillText: { color: COLORS.textPrimary, fontWeight: "800", fontSize: 15, letterSpacing: 0.5 },
-  iconBtn: { paddingHorizontal: 12 },
+  chipDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
 });

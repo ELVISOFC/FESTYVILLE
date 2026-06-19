@@ -68,6 +68,7 @@ function clearAuthCache() {
 // ---------- Offline-first cache ----------
 const STATE_CACHE_PREFIX = "fv_state:";
 const CATALOG_CACHE_KEY = "fv_catalog";
+const ARTISTS_CACHE_KEY = "fv_artists";
 
 function isPlayerStateLike(d: any): boolean {
   return !!(d && typeof d === "object" && typeof d.player_id === "string" && Array.isArray(d.buildings));
@@ -87,6 +88,13 @@ async function persistCatalogIfApplicable(path: string, data: any) {
   } catch {}
 }
 
+async function persistArtistsIfApplicable(path: string, data: any) {
+  if (path !== "/artists" || !data || typeof data !== "object" || !Array.isArray(data.artists)) return;
+  try {
+    await AsyncStorage.setItem(ARTISTS_CACHE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
 export async function loadCachedState(): Promise<PlayerState | null> {
   try {
     const pid = await getPlayerId();
@@ -100,6 +108,15 @@ export async function loadCachedState(): Promise<PlayerState | null> {
 export async function loadCachedCatalog(): Promise<{ catalog: CatalogItem[]; grid_size: number } | null> {
   try {
     const raw = await AsyncStorage.getItem(CATALOG_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCachedArtists(): Promise<{ artists: Artist[]; genres: Genre[] } | null> {
+  try {
+    const raw = await AsyncStorage.getItem(ARTISTS_CACHE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -147,6 +164,7 @@ async function req(path: string, opts: RequestInit = {}, requireAuth = true) {
   // Fire-and-forget cache writes; never let cache I/O block the response.
   void persistStateIfApplicable(data);
   void persistCatalogIfApplicable(path, data);
+  void persistArtistsIfApplicable(path, data);
   return data;
 }
 
@@ -341,6 +359,15 @@ export type PlayerState = {
   legacy_tier: "unknown" | "local" | "regional" | "national" | "legendary";
   genre_identity: string | null;
   specialization: string | null;
+  // Always present now — every state-returning endpoint wraps its response
+  // with state_with_caps() server-side. build/artist caps come from the
+  // player's current phase; *_slots_used are live counts (active buildings,
+  // booked artists). The server also enforces these caps on /place and
+  // /book_artist — this isn't just a display number.
+  build_cap: number;
+  artist_cap: number;
+  build_slots_used: number;
+  artist_slots_used: number;
   server_time: number;
   last_event?: DayLogEntry;
   new_achievements?: Achievement[];

@@ -468,7 +468,19 @@ def pick_cycle_goal(player_id: str, cycle_number: int) -> dict:
     goal_types = ["infra", "lineup", "score", "genre"]
     selected_type = goal_types[cycle_number % 4]
     random.seed(f"{player_id}_{cycle_number}")
-    return {**random.choice(GOALS[selected_type]), "completed": False}
+    goal_def = random.choice(GOALS[selected_type])
+    # Only return client-safe, JSON-serializable fields. The goal_def itself also
+    # carries a "check" lambda and an internal "reward" dict — neither should ever
+    # reach state/the response. (A previous version spread goal_def directly into
+    # this return value, which meant the lambda landed in PlayerState.current_cycle_goal
+    # and crashed JSON serialization the moment that endpoint's response was built.)
+    return {
+        "id": goal_def["id"],
+        "type": goal_def["type"],
+        "label": goal_def["label"],
+        "reward_label": goal_def["reward_label"],
+        "completed": False,
+    }
 
 def apply_goal_reward(state: dict, reward: dict) -> dict:
     state["coins"] = state.get("coins", 0) + reward.get("coins", 0)
@@ -599,6 +611,12 @@ async def get_or_create_state(player_id: str) -> Dict[str, Any]:
             {"player_id": player_id},
             {"$set": {"daily_challenge": doc["daily_challenge"]}}
         )
+    if not doc.get("current_cycle_goal"):
+        doc["current_cycle_goal"] = pick_cycle_goal(player_id, doc.get("cycle", 1))
+        await db.players.update_one(
+            {"player_id": player_id},
+            {"$set": {"current_cycle_goal": doc["current_cycle_goal"]}}
+        )
     doc = refresh_buildings(doc)
     await db.players.update_one({"player_id": player_id}, {"$set": {"buildings": doc["buildings"]}})
     return doc
@@ -649,6 +667,9 @@ async def book_artist(player_id: str, body: Dict[str, str]):
         raise HTTPException(400, "Artist genre doesn't match festival genre")
     if aid in state["lineup"]:
         raise HTTPException(400, "Already booked")
+    artist_cap = get_caps(state["phase"])["artist"]
+    if len(state["lineup"]) >= artist_cap:
+        raise HTTPException(400, f"Artist roster full ({artist_cap} max at this phase)")
     if state["coins"] < artist["fee"]:
         raise HTTPException(400, "Not enough coins to pay fee")
     state["coins"] -= artist["fee"]
@@ -682,7 +703,7 @@ async def unbook_artist(player_id: str, body: Dict[str, str]):
         {"$set": {"coins": state["coins"], "lineup": state["lineup"]}}
     )
     state["server_time"] = now_ts()
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/advance_day", dependencies=[Depends(require_player)])
 async def advance_day(player_id: str):
@@ -738,7 +759,7 @@ async def advance_day(player_id: str):
     state["server_time"] = now_ts()
     state["last_event"] = log_entry
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/minigame_reward", dependencies=[Depends(require_player)])
 async def minigame_reward(player_id: str, body: Dict[str, Any]):
@@ -800,7 +821,7 @@ async def minigame_reward(player_id: str, body: Dict[str, Any]):
         "xp_earned": xp_reward,
         "cooldown_bonus_seconds": cooldown_bonus_seconds,
         "buildings_speeded": buildings_speeded,
-        "state": state,
+        "state": state_with_caps(state),
         "new_achievements": state.get("new_achievements", []),
     }
 
@@ -820,32 +841,17 @@ async def start_cycle(player_id: str):
         {"$set": {
             "cycle": state["cycle"], "day": 1, "genre": None,
             "lineup": [], "day_log": [], "daily_challenge": state["daily_challenge"],
+            "current_cycle_goal": state["current_cycle_goal"],
         }}
     )
     state["server_time"] = now_ts()
-    return state
-
-    # ── Cycle goal check ────────────────────────────────────────────
-    current_goal = state.get("current_cycle_goal")
-    goal_completed = False
-    goal_label = None
-    if current_goal and not current_goal.get("completed", False):
-        goal_id = current_goal.get("id")
-        goal_def = next(
-            (g for gs in GOALS.values() for g in gs if g["id"] == goal_id), None
-        )
-        if goal_def and goal_def["check"](state):
-            state = apply_goal_reward(state, goal_def["reward"])
-            current_goal["completed"] = True
-            state["current_cycle_goal"] = current_goal
-            goal_completed = True
-            goal_label = goal_def["reward_label"]
+    return state_with_caps(state)
 
 @api_router.get("/state/{player_id}", dependencies=[Depends(require_player)])
 async def get_state(player_id: str):
     state = await get_or_create_state(player_id)
     state["server_time"] = now_ts()
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/place", dependencies=[Depends(require_player)])
 async def place_building(player_id: str, req: PlaceRequest):
@@ -862,6 +868,10 @@ async def place_building(player_id: str, req: PlaceRequest):
             raise HTTPException(400, "Tile occupied")
     if state["coins"] < item["cost"]:
         raise HTTPException(400, "Not enough coins")
+    build_cap = get_caps(state["phase"])["build"]
+    active_buildings = sum(1 for b in state["buildings"] if b.get("status") != "destroyed")
+    if active_buildings >= build_cap:
+        raise HTTPException(400, f"Build slots full ({build_cap} max at this phase)")
 
     t = now_ts()
     new_building = Building(
@@ -885,7 +895,7 @@ async def place_building(player_id: str, req: PlaceRequest):
     )
     state["server_time"] = now_ts()
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/speedup", dependencies=[Depends(require_player)])
 async def speedup(player_id: str, req: SpeedupRequest):
@@ -894,7 +904,7 @@ async def speedup(player_id: str, req: SpeedupRequest):
     if not target:
         raise HTTPException(404, "Building not found")
     if target["status"] == "ready":
-        return state
+        return state_with_caps(state)
     remaining = max(0, target["ready_at"] - now_ts())
     cost = max(10, int(remaining / 6))
     if state["coins"] < cost:
@@ -914,7 +924,7 @@ async def speedup(player_id: str, req: SpeedupRequest):
     )
     state["server_time"] = now_ts()
     state["new_achievements"] = [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID]
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/demolish", dependencies=[Depends(require_player)])
 async def demolish(player_id: str, req: SpeedupRequest):
@@ -928,7 +938,7 @@ async def demolish(player_id: str, req: SpeedupRequest):
         {"$set": {"buildings": state["buildings"]}}
     )
     state["server_time"] = now_ts()
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/simulate", dependencies=[Depends(require_player)])
 async def simulate(player_id: str, req: SimulateRequest):
@@ -1007,6 +1017,8 @@ async def simulate(player_id: str, req: SimulateRequest):
     chemistry_bonus = compute_chemistry(lineup_genres)
 
     # Apply genre-specific layout bonuses (Indie, EDM, Rock, HipHop, Pop)
+    genre_layout_bonus = None
+    genre_layout_missed = None
     if festival_genre and festival_genre != "mixed":
         _breakdown = {
             "crowd_flow_raw":      crowd_flow,
@@ -1019,12 +1031,14 @@ async def simulate(player_id: str, req: SimulateRequest):
             "utility_coverage":    utility_coverage,
             "aesthetic":           aesthetic,
         }
-        _breakdown = apply_genre_bonus(_breakdown, festival_genre, state["buildings"])
+        _breakdown = apply_genre_bonus(_breakdown, festival_genre, state["buildings"], CATALOG_BY_ID)
         crowd_flow        = _breakdown.get("crowd_flow",        crowd_flow)
         stage_score       = _breakdown.get("stage_score",       stage_score)
         vendor_coverage   = _breakdown.get("vendor_coverage",   vendor_coverage)
         utility_coverage  = _breakdown.get("utility_coverage",  utility_coverage)
         aesthetic         = _breakdown.get("aesthetic",         aesthetic)
+        genre_layout_bonus  = _breakdown.get("bonus_label")
+        genre_layout_missed = _breakdown.get("bonus_missed")
 
     weights = {"stage": 0.30, "crowd_flow": 0.20, "vendor": 0.20, "utility": 0.15, "aesthetic": 0.15}
     composite = (
@@ -1099,11 +1113,36 @@ async def simulate(player_id: str, req: SimulateRequest):
         state.setdefault("genre_affinity", {"indie": 0.0, "edm": 0.0, "hiphop": 0.0, "rock": 0.0, "pop": 0.0})
         current = float(state["genre_affinity"].get(festival_genre, 0.0))
         state["genre_affinity"][festival_genre] = current + 0.05 * (composite / 100.0)
+
+    # ── Cycle goal check ────────────────────────────────────────────
+    # Must run BEFORE genre/lineup/cycle are reset below: the goal's "check"
+    # lambda inspects the festival that just ran (last_grade, last_score,
+    # genre, lineup), not the upcoming one. The lambda itself lives only in
+    # the module-level GOALS dict — never in state — so it's looked up by id
+    # rather than read off current_cycle_goal (which only stores plain fields).
+    goal_completed = False
+    goal_reward_label = None
+    current_goal = state.get("current_cycle_goal")
+    if current_goal and not current_goal.get("completed", False):
+        goal_id = current_goal.get("id")
+        goal_def = next(
+            (g for goals in GOALS.values() for g in goals if g["id"] == goal_id), None
+        )
+        if goal_def and goal_def["check"](state):
+            state = apply_goal_reward(state, goal_def["reward"])
+            current_goal["completed"] = True
+            state["current_cycle_goal"] = current_goal
+            goal_completed = True
+            goal_reward_label = goal_def["reward_label"]
+
     state["cycle"] = state.get("cycle", 1) + 1
     state["day"] = 1
     state["genre"] = None
     state["lineup"] = []
     state["day_log"] = []
+
+    # Now that the just-finished cycle's goal has been scored, pick the next one.
+    state["current_cycle_goal"] = pick_cycle_goal(player_id, state["cycle"])
 
     while state["xp"] >= xp_for_level(state["level"]):
         state["level"] += 1
@@ -1165,6 +1204,7 @@ async def simulate(player_id: str, req: SimulateRequest):
             "reputation_score": state.get("reputation_score", 0),
             "legacy_tier": state.get("legacy_tier", "unknown"),
             "genre_identity": state.get("genre_identity"),
+            "current_cycle_goal": state.get("current_cycle_goal"),
         }}
     )
 
@@ -1188,6 +1228,8 @@ async def simulate(player_id: str, req: SimulateRequest):
         },
         "penalty": penalty,
         "genre_bonus": genre_bonus,
+        "genre_layout_bonus": genre_layout_bonus,
+        "genre_layout_missed": genre_layout_missed,
         "lineup_boost": lineup_boost,
         "rewards": {"coins": coin_reward, "xp": xp_reward},
         "challenge": {
@@ -1199,11 +1241,20 @@ async def simulate(player_id: str, req: SimulateRequest):
         "new_achievements": [ACHIEVEMENTS_BY_ID[a] for a in new_ach if a in ACHIEVEMENTS_BY_ID],
         "new_milestones": [MILESTONES_BY_ID[m] for m in new_ms if m in MILESTONES_BY_ID],
         "tier_upgrade": tier_upgrade,
+        "cycle_goal": {
+            "completed": goal_completed,
+            "reward_label": goal_reward_label,
+            "next_goal": state.get("current_cycle_goal"),
+        },
         "state": {
             "coins": state["coins"], "xp": state["xp"],
             "level": state["level"], "phase": state["phase"],
             "festivals_run": state["festivals_run"],
             "cycle": state["cycle"], "day": state["day"],
+            "build_cap": get_caps(state["phase"])["build"],
+            "artist_cap": get_caps(state["phase"])["artist"],
+            "build_slots_used": sum(1 for b in state["buildings"] if b.get("status") != "destroyed"),
+            "artist_slots_used": len(state["lineup"]),
         },
     }
 
@@ -1218,7 +1269,7 @@ async def reset_player(player_id: str):
         {"player_id": player_id}, {"$set": fresh}, upsert=True
     )
     fresh["server_time"] = now_ts()
-    return fresh
+    return state_with_caps(fresh)
 
 @api_router.post("/state/{player_id}/delete", dependencies=[Depends(require_player)])
 async def delete_player(player_id: str):
@@ -1240,7 +1291,7 @@ async def set_specialization(player_id: str, body: SetSpecializationRequest):
     state["specialization"] = body.path
     await db.players.update_one({"player_id": player_id}, {"$set": {"specialization": body.path}})
     state.pop("_id", None)
-    return state
+    return state_with_caps(state)
 
 @api_router.post("/state/{player_id}/rename", dependencies=[Depends(require_player)])
 async def rename(player_id: str, body: Dict[str, str]):
@@ -1258,11 +1309,25 @@ async def leaderboard(limit: int = 25):
     return {"entries": docs}
 
 app.include_router(api_router)
+
+# CORS: allow_origins=["*"] + allow_credentials=True is not actually valid per
+# the CORS spec (browsers reject a wildcard origin when credentials are
+# allowed) — the previous hardcoded config was already broken for any
+# credentialed cross-origin request, not just "permissive". Default to an
+# open, non-credentialed dev config; set ALLOWED_ORIGINS (comma-separated)
+# in production to lock to the real app domain(s) and enable credentials.
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
+if _allowed_origins_env:
+    _cors_origins = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+    _cors_credentials = True
+else:
+    _cors_origins = ["*"]
+    _cors_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-

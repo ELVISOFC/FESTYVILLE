@@ -1,83 +1,57 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
+  TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  Modal,
   Platform,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { api, loadCachedState, loadCachedCatalog, type CatalogItem, type PlayerState, type SimResult } from "../src/api";
-import { COLORS, CATEGORY_COLORS } from "../src/theme";
-import { computeScore, type ScoreBreakdown } from "../src/lib/scoring";
-import { ensurePermission, scheduleBuildComplete, cancelScheduled } from "../src/notifications";
+import {
+  api,
+  type Artist,
+  type Genre,
+  type PlayerState,
+  type CatalogItem,
+} from "../src/api";
+import { COLORS } from "../src/theme";
 import { Analytics } from "../src/analytics";
+import { computeScore } from "../src/lib/scoring";
 import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
-import IsometricGrid, { TILE_W, TILE_H, gridToScreen } from "../src/components/IsometricGrid";
-import BuildingSprite from "../src/components/BuildingSprite";
-import ConstructionTimer from "../src/components/ConstructionTimer";
-import SimulationModal from "../src/components/SimulationModal";
-import SimulationOverlay from "../src/components/SimulationOverlay";
-import TierUpgradeModal from "../src/components/TierUpgradeModal";
-import type { LegacyTier } from "../src/legacy";
-
-const SPEC_CHOICES = [
-  { path: "producer", label: "Producer", emoji: "🎛", color: "#FF0055", bonus: "+ Stage Score",     detail: "Your stages hit harder" },
-  { path: "promoter", label: "Promoter", emoji: "📣", color: "#FF9900", bonus: "+ Vendor Score",    detail: "Your vendors pull bigger crowds" },
-  { path: "operator", label: "Operator", emoji: "⚙️", color: "#00FFFF", bonus: "½ Build Penalty",   detail: "Unfinished builds hurt less" },
-  { path: "curator",  label: "Curator",  emoji: "🎨", color: "#FFD700", bonus: "+ Aesthetic Score", detail: "Your decor wows the crowd" },
-] as const;
-
-function alertOrLog(title: string, msg: string) {
-  if (Platform.OS === "web") {
-    // eslint-disable-next-line no-alert
-    window.alert(`${title}\n\n${msg}`);
-  } else {
-    Alert.alert(title, msg);
-  }
-}
+import IsometricGrid, { TILE_W, TILE_H } from "../src/components/IsometricGrid";
+import AchievementToast from "../src/components/AchievementToast";
+import TutorialModal from "../src/components/TutorialModal";
+import CharacterBubble from "../src/components/CharacterBubble";
+import MiniGameModal from "../src/components/MiniGameModal";
 
 export default function Index() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [state, setState] = useState<PlayerState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [showSpecPicker, setShowSpecPicker] = useState(false);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [gridSize, setGridSize] = useState(8);
   const [selectedTile, setSelectedTile] = useState<{ x: number; y: number } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [simResult, setSimResult] = useState<SimResult | null>(null);
-  const [simOpen, setSimOpen] = useState(false);
-  // Tier upgrade is shown FIRST (full-screen) before the normal results modal,
-  // so the new tier feels like a milestone and not a footnote.
-  const [tierUpgradeOpen, setTierUpgradeOpen] = useState(false);
-  const [pendingTierUpgrade, setPendingTierUpgrade] = useState<{
-    from: LegacyTier;
-    to: LegacyTier;
-    reputation_score: number;
-  } | null>(null);
-  const [simAnimating, setSimAnimating] = useState(false);
-  const [simBreakdown, setSimBreakdown] = useState<ScoreBreakdown>({
-    stage_score: 0, crowd_flow: 0, vendor_coverage: 0,
-    utility_coverage: 0, aesthetic: 0, chemistry_bonus: 0, composite: 0,
-  });
-  const pendingResultRef = useRef<SimResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<
+    "build" | "view" | null
+  >(null);
+  const [drawerTile, setDrawerTile] = useState<{ x: number; y: number } | null>(null);
+  const [achievementStack, setAchievementStack] = useState<
+    { id: string; authID: number }[] | null
+  >(null);
   const [tick, setTick] = useState(0);
   const lastPolledRef = useRef(0);
 
-  useEffect(() => {
-    Analytics.screenView("main_game");
-  }, []);
-
-  // Auto-show specialization picker for saves that haven't chosen a path yet.
   useEffect(() => {
     if (state && !state.specialization) setShowSpecPicker(true);
   }, [state?.specialization]);
@@ -104,10 +78,7 @@ export default function Index() {
     }
   }, []);
 
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
-  const [showSpecPicker, setShowSpecPicker] = useState(false);
-  const hydratedFromCacheRef = useRef(false);
+  const [oldState, setOldState] = useState<PlayerState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +87,7 @@ export default function Index() {
     //    Use functional setState guards so a slow cache read can never overwrite
     //    a faster server response.
     (async () => {
-      const [cachedCat, cachedState] = await Promise.all([loadCachedCatalog(), loadCachedState()]);
+      const [cachedCat, cachedState] = await Promise.all([api.loadCachedCatalog(), api.loadCachedState()]);
       if (cancelled) return;
       if (cachedCat) {
         setCatalog((prev) => (prev.length ? prev : cachedCat.catalog));
@@ -125,7 +96,6 @@ export default function Index() {
       if (cachedState) {
         setState((prev) => {
           if (prev) return prev; // server already populated — keep fresher data
-          hydratedFromCacheRef.current = true;
           setLoading(false);
           return cachedState;
         });
@@ -146,13 +116,19 @@ export default function Index() {
         if (cancelled) return;
         const msg = e?.message || String(e);
         Analytics.errorOccurred("load_failed", msg, "index_init");
-        if (hydratedFromCacheRef.current) {
-          // We have local data — degrade gracefully instead of blocking the UI.
-          setOffline(true);
-        } else {
-          setLoadError(msg);
-          alertOrLog("Connection Error", msg);
-        }
+        // Read the *live* state via a no-op functional update — 'state' closed
+        // over at mount is always null here regardless of what cache hydration
+        // (phase 1, above) already put on screen moments earlier.
+        setState((current) => {
+          if (current) {
+            // We have local data — degrade gracefully instead of blocking the UI.
+            setOffline(true);
+          } else {
+            setLoadError(msg);
+            alertOrLog("Connection Error", msg);
+          }
+          return current;
+        });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -178,169 +154,141 @@ export default function Index() {
   }, [refreshState]);
 
   const occupied = useMemo(() => {
-    const set = new Set<string>();
-    state?.buildings.forEach((b) => set.add(`${b.x},${b.y}`));
-    return set;
-  }, [state]);
+    return new Set((state?.buildings ?? []).map((b) => `${b.x},${b.y}`));
+  }, [state?.buildings, tick]);
 
-  const activeBuilds = state?.buildings.filter((b) => b.status === "building").length ?? 0;
+  const activeBuilds = useMemo(() => {
+    return (state?.buildings ?? []).filter((b) => b.status === "ready").length;
+  }, [state?.buildings, tick]);
 
-  const handleTilePress = useCallback(
-    (x: number, y: number) => {
-      if (occupied.has(`${x},${y}`)) {
-        const b = state?.buildings.find((bb) => bb.x === x && bb.y === y);
-        if (b && b.status === "building") {
-          if (Platform.OS === "web") {
-            // eslint-disable-next-line no-alert
-            const ok = window.confirm("Speed up this build using coins?");
-            if (ok) doSpeedup(b.id);
-          } else {
-            Alert.alert("Speed Up?", "Pay coins to finish this build now.", [
-              { text: "Cancel", style: "cancel" },
-              { text: "Speed Up", onPress: () => doSpeedup(b.id) },
-            ]);
-          }
-        }
-        return;
+  const handleTilePress = (x: number, y: number) => {
+    const occ = occupied.has(`${x},${y}`);
+    if (occ) {
+      setDrawerMode("view");
+      const b = (state?.buildings ?? []).find((b) => b.x === x && b.y === y);
+      if (b) {
+        setDrawerTile({ x, y });
+        setSelectedTile({ x, y });
+        setDrawerOpen(true);
       }
+    } else {
+      setDrawerMode("build");
+      setDrawerTile({ x, y });
       setSelectedTile({ x, y });
       setDrawerOpen(true);
-    },
-    [occupied, state]
-  );
-
-  const handlePick = async (item: CatalogItem) => {
-    if (!selectedTile) {
-      setDrawerOpen(false);
-      return;
-    }
-    setBusy(true);
-    try {
-      const s = await api.place(item.id, selectedTile.x, selectedTile.y);
-      setState(s as PlayerState);
-      setOffline(false);
-      Analytics.buildingPlaced(item.id, item.category, item.tier, item.cost);
-      const placed = (s as PlayerState).buildings.find(
-        (b) => b.x === selectedTile.x && b.y === selectedTile.y
-      );
-      if (placed) {
-        const granted = await ensurePermission();
-        if (granted) {
-          scheduleBuildComplete(
-            placed.id,
-            "Build complete!",
-            `Your ${item.name} is ready to rock 🎤`,
-            placed.ready_at
-          ).catch(() => {});
-        }
-      }
-      setSelectedTile(null);
-      setDrawerOpen(false);
-    } catch (e: any) {
-      Analytics.errorOccurred("place_failed", e.message || String(e), "handlePick");
-      alertOrLog("Cannot place", e.message || String(e));
-    } finally {
-      setBusy(false);
     }
   };
 
-  const doSpeedup = async (id: string) => {
-    setBusy(true);
+  const doPlace = async (cid: string) => {
+    if (!drawerTile) return;
     try {
-      const building = state?.buildings.find((b) => b.id === id);
-      const s = await api.speedup(id);
-      setState(s as PlayerState);
-      setOffline(false);
-      if (building) {
-        const item = catalog.find((c) => c.id === building.catalog_id);
-        const coinsSpent = item ? Math.ceil(item.cost * 0.5) : 0;
-        Analytics.buildingSpedUp(building.catalog_id, coinsSpent);
-      }
-      cancelScheduled(id).catch(() => {});
+      const result = await api.place(cid, drawerTile.x, drawerTile.y);
+      setState(result as PlayerState);
+      setDrawerOpen(false);
     } catch (e: any) {
-      Analytics.errorOccurred("speedup_failed", e.message || String(e), "doSpeedup");
-      alertOrLog("Cannot speed up", e.message || String(e));
-    } finally {
-      setBusy(false);
+      alertOrLog("Place Error", e.message || String(e));
     }
   };
 
-  const handleRunFestival = async () => {
+  const doSpeedup = async (bid: string) => {
+    try {
+      const result = await api.speedup(bid);
+      setState(result as PlayerState);
+      setDrawerOpen(false);
+    } catch (e: any) {
+      alertOrLog("Speedup Error", e.message || String(e));
+    }
+  };
+
+  const doDemolish = async (bid: string) => {
+    Alert.alert("Demolish", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Demolish",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const result = await api.demolish(bid);
+            setState(result as PlayerState);
+            setDrawerOpen(false);
+          } catch (e: any) {
+            alertOrLog("Demolish Error", e.message || String(e));
+          }
+        },
+      },
+    ]);
+  };
+
+  const doRunFestival = async () => {
     if (!state) return;
-    const readyCount = state.buildings.filter((b) => b.status === "ready").length;
-    if (readyCount === 0) {
-      alertOrLog("Festival Cancelled", "Place and finish at least one building first.");
+    const ready = state.buildings.filter((b) => b.status === "ready");
+    if (ready.length === 0) {
+      Alert.alert("No Ready Buildings", "Finish at least one building to run a festival.");
       return;
     }
-    // Compute client-side score breakdown so the overlay agents reflect
-    // the actual festival layout before the server responds.
-    const breakdown = computeScore(
-      state.buildings,
-      state.lineup,
-      state.genre ?? null,
-      catalog,
-    );
-    setSimBreakdown(breakdown);
-    setBusy(true);
-    setSimAnimating(true);
-    pendingResultRef.current = null;
+    if (!state.genre) {
+      Alert.alert("No Genre Selected", "Pick a genre in the planning screen.");
+      return;
+    }
+
+    setOldState(state);
+    const breakdown = computeScore(state.buildings, state.lineup ?? [], state.genre ?? null, catalog);
+
     try {
-      const r = await api.simulate(breakdown);
-      pendingResultRef.current = r as SimResult;
-      setOffline(false);
-      Analytics.festivalRun(
-        r.grade,
-        r.composite,
-        state.cycle,
-        r.rewards.coins,
-        r.rewards.xp
-      );
-      refreshState().catch(() => {});
-    } catch (e: any) {
-      setSimAnimating(false);
-      Analytics.errorOccurred("simulate_failed", e.message || String(e), "handleRunFestival");
-      alertOrLog("Festival Cancelled", e.message || String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleAnimationComplete = () => {
-    setSimAnimating(false);
-    const r = pendingResultRef.current;
-    if (!r) return;
-    setSimResult(r);
-    // If the player crossed a tier this run, celebrate it BEFORE the normal
-    // results modal — it's the headline event of the session.
-    if (r.tier_upgrade && r.tier_upgrade.to !== r.tier_upgrade.from) {
-      setPendingTierUpgrade({
-        from: r.tier_upgrade.from as LegacyTier,
-        to: r.tier_upgrade.to as LegacyTier,
-        reputation_score: r.tier_upgrade.reputation_score,
+      const result = await api.simulate({
+        client_score: breakdown,
       });
-      setTierUpgradeOpen(true);
-    } else {
-      setSimOpen(true);
+
+      setState(result.state as PlayerState);
+      Analytics.eventOccurred("festival_run", {
+        grade: result.grade,
+        score: result.composite,
+      });
+
+      if (result.new_achievements && result.new_achievements.length > 0) {
+        setAchievementStack(
+          result.new_achievements.map((a: any) => ({
+            id: a.id,
+            authID: 0,
+          }))
+        );
+      }
+
+      router.push({
+        pathname: "/result",
+        params: {
+          grade: result.grade,
+          score: JSON.stringify(result.composite),
+          breakdown: JSON.stringify(result.breakdown),
+        },
+      });
+    } catch (e: any) {
+      alertOrLog("Festival Error", e.message || String(e));
     }
   };
 
-  const handleTierUpgradeClose = () => {
-    setTierUpgradeOpen(false);
-    setPendingTierUpgrade(null);
-    // Then surface the regular results card.
-    setSimOpen(true);
-  };
+  const getCatalogItem = (cid: string) => catalog.find((c) => c.id === cid);
 
-  if (loading || !state) {
+  if (loading && loadError) {
     return (
-      <View style={[styles.center, { backgroundColor: COLORS.bg, padding: 24 }]}>
+      <View style={styles.root}>
+        <Text style={{ color: COLORS.danger, marginTop: 20, textAlign: "center" }}>
+          Connection Error
+        </Text>
+        <Text style={{ color: COLORS.textSecondary, marginTop: 8, textAlign: "center", fontSize: 12 }}>
+          {loadError}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!state) {
+    return (
+      <View style={styles.root}>
         {loadError ? (
           <>
-            <Text style={{ color: COLORS.primary, fontSize: 16, fontWeight: "700", letterSpacing: 2, marginBottom: 8 }}>
-              SIGN-IN FAILED
-            </Text>
-            <Text style={{ color: COLORS.textSecondary, textAlign: "center", maxWidth: 480, lineHeight: 20 }}>
-              {loadError}
+            <Text style={{ color: COLORS.danger, marginTop: 20, textAlign: "center", fontSize: 14 }}>
+              ✗ Failed to load
             </Text>
             <Text style={{ color: COLORS.textSecondary, marginTop: 16, textAlign: "center", maxWidth: 480, fontSize: 12 }}>
               If this is "auth/admin-restricted-operation" or HTTP 400, enable Anonymous sign-in:
@@ -377,6 +325,10 @@ export default function Index() {
           cycle={state.cycle}
           genre={state.genre}
           specialization={state.specialization ?? null}
+          buildCap={state.build_cap}
+          artistCap={state.artist_cap}
+          buildSlotsUsed={state.build_slots_used}
+          artistSlotsUsed={state.artist_slots_used}
           onOpenLeaderboard={() => router.push("/leaderboard")}
           onOpenPlanning={() => router.push("/planning")}
           onOpenMenu={() => router.push("/menu")}
@@ -396,7 +348,9 @@ export default function Index() {
             {state.last_score}/100 · Day {state.day}/7
           </Text>
         ) : (
-          <Text style={styles.lastResult}>Day {state.day}/7 · {state.lineup.length} artist(s) booked · Build & wait</Text>
+          <Text style={styles.lastResult}>
+            Day {state.day}/7 · {state.lineup.length} artist(s) booked · Build & wait
+          </Text>
         )}
         {offline && (
           <View style={styles.offlinePill} testID="offline-pill">
@@ -424,269 +378,122 @@ export default function Index() {
                 gridSize={gridSize}
                 selected={selectedTile}
                 onTilePress={handleTilePress}
-                occupiedSet={occupied}
+                buildings={sortedBuildings}
+                catalog={catalog}
               />
-              {sortedBuildings.map((b) => {
-                const item = catalog.find((c) => c.id === b.catalog_id);
-                if (!item) return null;
-                const { sx, sy } = gridToScreen(b.x, b.y, gridSize);
-                const spriteHeight = 16 + item.tier * 8 + TILE_H;
-                const top = sy - spriteHeight + TILE_H;
-                return (
-                  <View
-                    key={b.id}
-                    style={{ position: "absolute", left: sx, top, alignItems: "center" }}
-                    testID={`building-${b.catalog_id}-${b.x}-${b.y}`}
-                  >
-                    <BuildingSprite
-                      category={item.category}
-                      tier={item.tier}
-                      ready={b.status === "ready"}
-                    />
-                    {b.status === "building" && (
-                      <View
-                        style={{
-                          position: "absolute",
-                          top: -24,
-                          left: -2,
-                          width: TILE_W + 8,
-                        }}
-                      >
-                        <ConstructionTimer
-                          readyAt={b.ready_at}
-                          placedAt={b.placed_at}
-                          serverNow={state.server_time}
-                          onSpeedup={() => doSpeedup(b.id)}
-                        />
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
             </View>
           </View>
         </ScrollView>
       </ScrollView>
 
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
+      <View style={styles.bottomBar}>
         <TouchableOpacity
-          style={styles.buildBtn}
-          onPress={() => {
-            setSelectedTile(null);
-            setDrawerOpen(true);
-          }}
-          testID="btn-open-build"
+          onPress={() => doRunFestival()}
+          style={[
+            styles.actionButton,
+            state.day < 7 && { opacity: 0.5 },
+          ]}
+          disabled={state.day < 7}
+          testID="run-festival-button"
         >
-          <Ionicons name="hammer" size={18} color="#fff" />
-          <Text style={styles.buildBtnText}>BUILD</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.runBtn, busy && { opacity: 0.6 }]}
-          disabled={busy}
-          onPress={handleRunFestival}
-          testID="btn-run-festival"
-        >
-          <Ionicons name="play" size={22} color="#fff" />
-          <Text style={styles.runBtnText}>RUN FESTIVAL</Text>
+          <Ionicons name="play" size={20} color={COLORS.textPrimary} />
+          <Text style={styles.actionButtonText}>RUN FESTIVAL</Text>
         </TouchableOpacity>
       </View>
 
-      <BuildDrawer
-        visible={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        catalog={catalog}
-        phase={state.phase}
-        coins={state.coins}
-        onPick={handlePick}
-      />
-      <SimulationOverlay
-        visible={simAnimating}
-        gridSize={gridSize}
-        buildings={state.buildings}
-        catalog={catalog}
-        scoreBreakdown={simBreakdown}
-        onComplete={handleAnimationComplete}
-      />
-      <TierUpgradeModal
-        visible={tierUpgradeOpen}
-        fromTier={pendingTierUpgrade?.from ?? null}
-        toTier={pendingTierUpgrade?.to ?? null}
-        reputationScore={pendingTierUpgrade?.reputation_score ?? 0}
-        onClose={handleTierUpgradeClose}
-      />
-      <SimulationModal
-        visible={simOpen}
-        result={simResult}
-        onClose={() => setSimOpen(false)}
-      />
+      {drawerOpen && (
+        <BuildDrawer
+          mode={drawerMode ?? "build"}
+          tile={drawerTile}
+          state={state}
+          catalog={catalog}
+          onPlace={doPlace}
+          onSpeedup={doSpeedup}
+          onDemolish={doDemolish}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
 
-      {/* ── Specialization Picker ── */}
-      <Modal visible={showSpecPicker} transparent animationType="fade" statusBarTranslucent>
-        <View style={styles.specOverlay}>
-          <View style={styles.specModal}>
-            <Text style={styles.specTitle}>CHOOSE YOUR PATH</Text>
-            <Text style={styles.specSubtitle}>
-              Your specialization gives a permanent passive bonus. Chosen once — choose wisely.
-            </Text>
-            <View style={styles.specGrid}>
-              {SPEC_CHOICES.map((s) => (
-                <TouchableOpacity
-                  key={s.path}
-                  style={[styles.specCard, { borderColor: s.color + "66" }]}
-                  onPress={() => handlePickSpec(s.path)}
-                  testID={`spec-choice-${s.path}`}
-                >
-                  <Text style={styles.specCardEmoji}>{s.emoji}</Text>
-                  <Text style={[styles.specCardLabel, { color: s.color }]}>{s.label.toUpperCase()}</Text>
-                  <Text style={styles.specCardBonus}>{s.bonus}</Text>
-                  <Text style={styles.specCardDetail}>{s.detail}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {achievementStack && achievementStack.length > 0 && (
+        <AchievementToast
+          achievements={achievementStack}
+          onDismiss={() => setAchievementStack(null)}
+        />
+      )}
+
+      {showSpecPicker && (
+        <TutorialModal
+          onClose={() => setShowSpecPicker(false)}
+          onPickSpec={handlePickSpec}
+        />
+      )}
+
+      <CharacterBubble state={state} oldState={oldState ?? undefined} />
+      <MiniGameModal state={state} onStateChange={setState} />
     </View>
   );
 }
 
+function alertOrLog(title: string, msg: string) {
+  if (Platform.OS === "web") {
+    console.log(`${title}: ${msg}`);
+  } else {
+    Alert.alert(title, msg);
+  }
+}
+
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.bg },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  root: {
+    flex: 1,
+    backgroundColor: "#0a0a14",
+  },
+  worldScrollX: {
+    flex: 1,
+  },
   lastResult: {
     color: COLORS.textSecondary,
-    fontSize: 11,
-    textAlign: "center",
-    marginTop: 6,
-    letterSpacing: 1,
-  },
-  offlinePill: {
-    alignSelf: "center",
-    marginTop: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,153,0,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(255,153,0,0.55)",
-  },
-  offlinePillText: {
-    color: "#FFB347",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.2,
-  },
-  worldScrollX: { flex: 1, marginTop: 4 },
-  bottomBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    backgroundColor: "#0c0d15",
-    borderTopWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-  buildBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: COLORS.surfaceElev,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-  },
-  buildBtnText: {
-    color: COLORS.textPrimary,
-    fontWeight: "900",
-    letterSpacing: 2,
-    fontSize: 15,
-  },
-  runBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 999,
-    shadowColor: COLORS.primary,
-    shadowOpacity: 0.6,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  runBtnText: {
-    color: "#fff",
-    fontWeight: "900",
-    letterSpacing: 3,
-    fontSize: 16,
-  },
-  specOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.88)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  specModal: {
-    width: "100%",
-    maxWidth: 440,
-    backgroundColor: "#0e0f1a",
-    borderRadius: 18,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-    alignItems: "center",
-  },
-  specTitle: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "900",
-    letterSpacing: 3,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  specSubtitle: {
-    color: "rgba(255,255,255,0.45)",
     fontSize: 12,
     textAlign: "center",
-    marginBottom: 22,
-    lineHeight: 18,
-  },
-  specGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    justifyContent: "center",
-    width: "100%",
-  },
-  specCard: {
-    width: "46%",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 18,
+    paddingVertical: 6,
     paddingHorizontal: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  offlinePill: {
+    backgroundColor: "rgba(255, 152, 0, 0.1)",
+    borderWidth: 1,
+    borderColor: COLORS.warning,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 6,
+    borderRadius: 4,
     alignItems: "center",
-    gap: 4,
   },
-  specCardEmoji: { fontSize: 30, marginBottom: 6 },
-  specCardLabel: { fontWeight: "900", fontSize: 13, letterSpacing: 1.5 },
-  specCardBonus: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 10,
+  offlinePillText: {
+    color: COLORS.warning,
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.5,
-    marginTop: 4,
   },
-  specCardDetail: {
-    color: "rgba(255,255,255,0.35)",
-    fontSize: 10,
-    textAlign: "center",
-    lineHeight: 14,
+  bottomBar: {
+    paddingBottom: 12,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: COLORS.accent,
+    paddingVertical: 12,
+    borderRadius: 6,
+  },
+  actionButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 1,
   },
 });

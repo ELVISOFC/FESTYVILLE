@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -46,17 +46,6 @@ const DIM_COLORS = {
   vendor:  "#FF9900",
   utility: "#00FF66",
   decor:   "#FFD700",
-};
-
-// ---------------------------------------------------------------------------
-// Specialization metadata
-// ---------------------------------------------------------------------------
-
-const SPEC_META: Record<string, { emoji: string; color: string; label: string; bonus: string }> = {
-  producer: { emoji: "🎛", color: "#FF0055", label: "Producer", bonus: "+ Stage Score" },
-  promoter: { emoji: "📣", color: "#FF9900", label: "Promoter", bonus: "+ Vendor Score" },
-  operator: { emoji: "⚙️", color: "#00FFFF", label: "Operator", bonus: "½ Build Penalty" },
-  curator:  { emoji: "🎨", color: "#FFD700", label: "Curator",  bonus: "+ Aesthetic Score" },
 };
 
 // ---------------------------------------------------------------------------
@@ -199,6 +188,7 @@ export default function Planning() {
   const [genres,  setGenres]  = useState<Genre[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
   const [busy,    setBusy]    = useState(false);
   const [miniGameOpen, setMiniGameOpen] = useState(false);
   const [toastAchs,    setToastAchs]   = useState<Achievement[]>([]);
@@ -217,20 +207,66 @@ export default function Planning() {
 
   useEffect(() => {
     Analytics.screenView("planning");
+    let cancelled = false;
+
+    // 1) Instant hydrate from local cache (do not block on network).
+    //    Functional setState guards mean a slow cache read can never
+    //    clobber a faster server response that already landed.
+    (async () => {
+      const [cachedArtists, cachedState, cachedCatalog] = await Promise.all([
+        api.loadCachedArtists(),
+        api.loadCachedState(),
+        api.loadCachedCatalog(),
+      ]);
+      if (cancelled) return;
+      if (cachedArtists) {
+        setArtists((prev) => (prev.length ? prev : cachedArtists.artists));
+        setGenres((prev) => (prev.length ? prev : cachedArtists.genres));
+      }
+      if (cachedCatalog) {
+        setCatalog((prev) => (prev.length ? prev : cachedCatalog.catalog));
+      }
+      if (cachedState) {
+        setState((prev) => {
+          if (prev) return prev; // server already answered — keep the fresher data
+          setLoading(false);
+          return cachedState;
+        });
+      }
+    })();
+
+    // 2) Background sync from server. If it fails but we already have cached
+    //    data on screen, degrade to an offline pill instead of blocking.
     (async () => {
       try {
         const [a, s, cat] = await Promise.all([api.artists(), api.state(), api.catalog()]);
+        if (cancelled) return;
         setArtists(a.artists);
         setGenres(a.genres);
         setState(s as PlayerState);
         setCatalog((cat as any).catalog ?? []);
+        setOffline(false);
       } catch (e: any) {
-        Analytics.errorOccurred("load_failed", e.message || String(e), "planning_init");
-        alertOrLog("Connection Error", e.message || String(e));
+        if (cancelled) return;
+        const msg = e.message || String(e);
+        Analytics.errorOccurred("load_failed", msg, "planning_init");
+        // Read the *live* state, not the one closed over at mount (which is
+        // always null here) — a functional setState update is the safe way
+        // to check "did cache hydration already put something on screen?".
+        setState((current) => {
+          if (current) {
+            setOffline(true);
+          } else {
+            alertOrLog("Connection Error", msg);
+          }
+          return current;
+        });
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => { cancelled = true; };
   }, []);
 
   // Live score — recomputes whenever buildings, lineup or genre change
@@ -360,24 +396,13 @@ export default function Planning() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 200 }}>
+      {offline && (
+        <View style={styles.offlinePill} testID="offline-pill">
+          <Text style={styles.offlinePillText}>⚠ OFFLINE — showing last saved plan</Text>
+        </View>
+      )}
 
-        {/* Specialization badge */}
-        {state.specialization && (() => {
-          const s = SPEC_META[state.specialization!];
-          if (!s) return null;
-          return (
-            <View style={[styles.specBadge, { borderColor: s.color + "55" }]}>
-              <Text style={{ fontSize: 18 }}>{s.emoji}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.specBadgeLabel, { color: s.color }]}>
-                  {s.label.toUpperCase()} PATH
-                </Text>
-                <Text style={styles.specBadgeBonus}>{s.bonus} · active this festival</Text>
-              </View>
-            </View>
-          );
-        })()}
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 200 }}>
 
         {/* Cycle Goal Card */}
         <CycleGoalCard goal={state.current_cycle_goal} />
@@ -689,6 +714,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderColor: "rgba(255,255,255,0.06)",
   },
   iconBtn: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
+  offlinePill: {
+    backgroundColor: "rgba(255, 152, 0, 0.1)",
+    borderWidth: 1,
+    borderColor: COLORS.warning,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginHorizontal: 16,
+    marginTop: 6,
+    borderRadius: 4,
+    alignItems: "center",
+  },
+  offlinePillText: {
+    color: COLORS.warning,
+    fontSize: 11,
+    fontWeight: "700",
+  },
   title: { color: COLORS.textPrimary, fontWeight: "900", letterSpacing: 4, fontSize: 14 },
   subtitle: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 1 },
   cycleGoalCard: {
@@ -829,17 +870,4 @@ const styles = StyleSheet.create({
     paddingVertical: 14, borderRadius: 999,
   },
   bigBtnText: { color: "#fff", fontWeight: "900", letterSpacing: 2, fontSize: 13 },
-  specBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 14,
-  },
-  specBadgeLabel: { fontWeight: "900", fontSize: 11, letterSpacing: 1.5 },
-  specBadgeBonus: { color: "rgba(255,255,255,0.38)", fontSize: 10, marginTop: 2 },
 });

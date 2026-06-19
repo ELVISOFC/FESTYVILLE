@@ -21,6 +21,7 @@ import {
 } from "../src/api";
 import { COLORS } from "../src/theme";
 import { Analytics } from "../src/analytics";
+import { computeScore } from "../src/lib/scoring";
 import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
 import IsometricGrid, { TILE_W, TILE_H } from "../src/components/IsometricGrid";
@@ -28,17 +29,6 @@ import AchievementToast from "../src/components/AchievementToast";
 import TutorialModal from "../src/components/TutorialModal";
 import CharacterBubble from "../src/components/CharacterBubble";
 import MiniGameModal from "../src/components/MiniGameModal";
-
-const SLOT_CAPS: Record<number, { build: number; artist: number }> = {
-  1: { build: 4, artist: 2 },
-  2: { build: 6, artist: 3 },
-  3: { build: 9, artist: 4 },
-  4: { build: 12, artist: 5 },
-};
-
-function getSlotCaps(phase: number) {
-  return SLOT_CAPS[phase] || SLOT_CAPS[4];
-}
 
 export default function Index() {
   const insets = useSafeAreaInsets();
@@ -126,13 +116,19 @@ export default function Index() {
         if (cancelled) return;
         const msg = e?.message || String(e);
         Analytics.errorOccurred("load_failed", msg, "index_init");
-        if (state) {
-          // We have local data — degrade gracefully instead of blocking the UI.
-          setOffline(true);
-        } else {
-          setLoadError(msg);
-          alertOrLog("Connection Error", msg);
-        }
+        // Read the *live* state via a no-op functional update — 'state' closed
+        // over at mount is always null here regardless of what cache hydration
+        // (phase 1, above) already put on screen moments earlier.
+        setState((current) => {
+          if (current) {
+            // We have local data — degrade gracefully instead of blocking the UI.
+            setOffline(true);
+          } else {
+            setLoadError(msg);
+            alertOrLog("Connection Error", msg);
+          }
+          return current;
+        });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -236,16 +232,7 @@ export default function Index() {
     }
 
     setOldState(state);
-    const breakdown = await import("../src/lib/scoring").then((m) =>
-      m.computeScore({
-        gridSize,
-        buildings: ready,
-        lineup: state.lineup ?? [],
-        genre: state.genre ?? "mixed",
-        allCatalog: catalog,
-        allArtists: await api.artists(),
-      })
-    );
+    const breakdown = computeScore(state.buildings, state.lineup ?? [], state.genre ?? null, catalog);
 
     try {
       const result = await api.simulate({
@@ -325,10 +312,6 @@ export default function Index() {
 
   const sortedBuildings = [...state.buildings].sort((a, b) => (a.x + a.y) - (b.x + b.y));
 
-  const caps = getSlotCaps(state.phase);
-  const buildSlotsUsed = state.buildings.filter((b) => b.status !== "destroyed").length;
-  const artistSlotsUsed = state.lineup.length;
-
   return (
     <View style={[styles.root, { paddingTop: insets.top + 6 }]}>
       <View testID="top-hud">
@@ -342,10 +325,10 @@ export default function Index() {
           cycle={state.cycle}
           genre={state.genre}
           specialization={state.specialization ?? null}
-          buildCap={caps.build}
-          artistCap={caps.artist}
-          buildSlotsUsed={buildSlotsUsed}
-          artistSlotsUsed={artistSlotsUsed}
+          buildCap={state.build_cap}
+          artistCap={state.artist_cap}
+          buildSlotsUsed={state.build_slots_used}
+          artistSlotsUsed={state.artist_slots_used}
           onOpenLeaderboard={() => router.push("/leaderboard")}
           onOpenPlanning={() => router.push("/planning")}
           onOpenMenu={() => router.push("/menu")}

@@ -66,6 +66,65 @@ export function computeChemistry(lineupGenres: string[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Genre layout bonus — faithful port of backend/festival_simulation.py's
+// apply_genre_bonus(). Must stay in sync with that file: same five genres,
+// same thresholds, same lack of re-capping at 100 after a multiplicative
+// bonus (the server doesn't re-cap either, so neither does this).
+// Without this, the client's composite estimate silently drifts from the
+// server's the moment a genre bonus condition is actually met, since the
+// server applies it but the client previously had no idea it existed.
+// ---------------------------------------------------------------------------
+
+type GenreLayoutValues = {
+  crowdFlow: number;
+  stageScore: number;
+  vendorCoverage: number;
+  utilityCoverage: number;
+  aesthetic: number;
+};
+
+function applyGenreLayoutBonus(
+  genre: string | null,
+  buildings: Building[],
+  catalogById: Map<string, CatalogItem>,
+  values: GenreLayoutValues,
+): GenreLayoutValues {
+  const genreKey = (genre ?? "").trim().toLowerCase();
+  const out = { ...values };
+  const categoryOf = (b: Building) => catalogById.get(b.catalog_id)?.category;
+
+  if (genreKey === "indie") {
+    if (values.crowdFlow > 70) {
+      out.crowdFlow = values.crowdFlow * 1.15;
+    }
+  } else if (genreKey === "edm") {
+    const stageCount = buildings.filter((b) => categoryOf(b) === "stage").length;
+    if (stageCount === 1 && values.stageScore > 20) {
+      out.stageScore = values.stageScore * 1.20;
+    }
+  } else if (genreKey === "rock") {
+    const stageCount = buildings.filter((b) => categoryOf(b) === "stage").length;
+    if (stageCount > 1) {
+      out.stageScore = values.stageScore + Math.min(3, (stageCount - 1) * 3);
+    }
+  } else if (genreKey === "hiphop") {
+    const vendorCatalogIds = new Set(
+      buildings.filter((b) => categoryOf(b) === "vendor").map((b) => b.catalog_id),
+    );
+    if (vendorCatalogIds.size >= 3) {
+      out.vendorCoverage = values.vendorCoverage * 1.15;
+    }
+  } else if (genreKey === "pop") {
+    if (values.aesthetic > 12) {
+      out.crowdFlow = values.crowdFlow * 1.10;
+      out.stageScore = values.stageScore * 1.10;
+      out.vendorCoverage = values.vendorCoverage * 1.10;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Main scoring function — called by planning.tsx live bar and SimulationOverlay
 // ---------------------------------------------------------------------------
 
@@ -78,7 +137,7 @@ export function computeScore(
   const catalogById = new Map(catalog.map((c) => [c.id, c]));
 
   const ready = buildings.filter((b) => b.status === "ready");
-  const inProgress = buildings.filter((b) => b.status === "under_construction");
+  const inProgress = buildings.filter((b) => b.status === "building");
 
   const stages    = ready.filter((b) => catalogById.get(b.catalog_id)?.category === "stage");
   const vendors   = ready.filter((b) => catalogById.get(b.catalog_id)?.category === "vendor");
@@ -139,17 +198,19 @@ export function computeScore(
   }
 
   // ── Vendor coverage ───────────────────────────────────────────────────────
+  // Mirrors server.py exactly: full coverage needs 3 vendors per stage.
   let vendorCoverage: number;
   if (stages.length > 0) {
-    vendorCoverage = Math.min(100, Math.round((vendors.length / stages.length) * 100));
+    vendorCoverage = Math.min(100, Math.round((vendors.length / (3 * stages.length)) * 100));
   } else {
     vendorCoverage = Math.min(60, vendors.length * 15);
   }
 
   // ── Utility coverage ──────────────────────────────────────────────────────
+  // Mirrors server.py exactly: full coverage needs 2 utilities per stage.
   let utilityCoverage: number;
   if (stages.length > 0) {
-    utilityCoverage = Math.min(100, Math.round((utilities.length / stages.length) * 100));
+    utilityCoverage = Math.min(100, Math.round((utilities.length / (2 * stages.length)) * 100));
   } else {
     utilityCoverage = Math.min(60, utilities.length * 20);
   }
@@ -158,13 +219,32 @@ export function computeScore(
   const decorRaw = decors.reduce((sum, b) => sum + (catalogById.get(b.catalog_id)?.score ?? 0), 0);
   const aesthetic = Math.min(100, decorRaw * 6);
 
+  // ── Genre layout bonus ───────────────────────────────────────────────────
+  // Matches server.py's call exactly: checked against ALL buildings (not just
+  // `ready`), same as state["buildings"] is passed server-side. A stage still
+  // under construction can swing the EDM/Rock bonus even though it doesn't
+  // contribute to stage_score yet — that's a quirk of the server's own logic,
+  // not something to "fix" here; this port's job is to match it.
+  const bonused = applyGenreLayoutBonus(festivalGenre, buildings, catalogById, {
+    crowdFlow,
+    stageScore,
+    vendorCoverage,
+    utilityCoverage,
+    aesthetic,
+  });
+  crowdFlow = bonused.crowdFlow;
+  stageScore = bonused.stageScore;
+  vendorCoverage = bonused.vendorCoverage;
+  utilityCoverage = bonused.utilityCoverage;
+  const finalAesthetic = bonused.aesthetic;
+
   // ── Composite (weighted) ──────────────────────────────────────────────────
   const composite = Math.max(0, Math.round(
     stageScore    * 0.30
     + crowdFlow   * 0.20
     + vendorCoverage  * 0.20
     + utilityCoverage * 0.15
-    + aesthetic   * 0.15
+    + finalAesthetic  * 0.15
     - penalty
     + genreBonus
     + chemistryBonus,
@@ -175,7 +255,7 @@ export function computeScore(
     crowd_flow:       Math.round(crowdFlow     * 0.20),
     vendor_coverage:  Math.round(vendorCoverage  * 0.20),
     utility_coverage: Math.round(utilityCoverage * 0.15),
-    aesthetic:        Math.round(aesthetic     * 0.15),
+    aesthetic:        Math.round(finalAesthetic * 0.15),
     chemistry_bonus:  Math.round(chemistryBonus * 10) / 10,
     composite,
   };

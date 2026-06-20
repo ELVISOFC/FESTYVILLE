@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signInAnonymously, signOut, onAuthStateChanged, User } from "firebase/auth";
 import { getFirebaseAuth } from "./firebase";
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL || "").replace(/\/$/, "");
 
 let _userPromise: Promise<User> | null = null;
 let _cachedToken: { token: string; expiresAt: number } | null = null;
@@ -43,9 +43,41 @@ function waitForUser(): Promise<User> {
   return p;
 }
 
+const LOCAL_PLAYER_ID_KEY = "fv_local_player_id";
+let _localPlayerId: string | null = null;
+
+async function getLocalPlayerId(): Promise<string> {
+  if (_localPlayerId) return _localPlayerId;
+  try {
+    const stored = await AsyncStorage.getItem(LOCAL_PLAYER_ID_KEY);
+    if (stored) {
+      _localPlayerId = stored;
+      return stored;
+    }
+  } catch {}
+  const id = "local_" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  _localPlayerId = id;
+  try { await AsyncStorage.setItem(LOCAL_PLAYER_ID_KEY, id); } catch {}
+  return id;
+}
+
+function isFirebaseConfigured(): boolean {
+  return !!(
+    process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID &&
+    process.env.EXPO_PUBLIC_FIREBASE_API_KEY
+  );
+}
+
 async function getPlayerId(): Promise<string> {
-  const user = await waitForUser();
-  return user.uid;
+  if (!isFirebaseConfigured()) {
+    return getLocalPlayerId();
+  }
+  try {
+    const user = await waitForUser();
+    return user.uid;
+  } catch {
+    return getLocalPlayerId();
+  }
 }
 
 async function getIdToken(forceRefresh = false): Promise<string> {
@@ -53,11 +85,14 @@ async function getIdToken(forceRefresh = false): Promise<string> {
   if (!forceRefresh && _cachedToken && _cachedToken.expiresAt > now + 60_000) {
     return _cachedToken.token;
   }
-  const user = await waitForUser();
-  const token = await user.getIdToken(forceRefresh);
-  // Firebase ID tokens are valid for 1 hour. Cache for 50 minutes.
-  _cachedToken = { token, expiresAt: now + 50 * 60 * 1000 };
-  return token;
+  try {
+    const user = await waitForUser();
+    const token = await user.getIdToken(forceRefresh);
+    _cachedToken = { token, expiresAt: now + 50 * 60 * 1000 };
+    return token;
+  } catch {
+    return "";
+  }
 }
 
 function clearAuthCache() {

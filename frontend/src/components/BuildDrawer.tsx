@@ -9,15 +9,17 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, CATEGORY_COLORS } from "../theme";
-import type { CatalogItem } from "../api";
+import type { CatalogItem, PlayerState, Building } from "../api";
 
 type Props = {
-  visible: boolean;
-  onClose: () => void;
+  mode: "build" | "view";
+  tile: { x: number; y: number } | null;
+  state: PlayerState;
   catalog: CatalogItem[];
-  phase: number;
-  coins: number;
-  onPick: (item: CatalogItem) => void;
+  onPlace: (catalogId: string) => void;
+  onSpeedup: (buildingId: string) => void;
+  onDemolish: (buildingId: string) => void;
+  onClose: () => void;
 };
 
 const CATEGORIES: { id: CatalogItem["category"]; label: string; icon: any }[] = [
@@ -27,12 +29,88 @@ const CATEGORIES: { id: CatalogItem["category"]; label: string; icon: any }[] = 
   { id: "decor",   label: "Decor",   icon: "sparkles" },
 ];
 
-export default function BuildDrawer({ visible, onClose, catalog, phase, coins, onPick }: Props) {
+export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpeedup, onDemolish, onClose }: Props) {
   const [tab, setTab] = useState<CatalogItem["category"]>("stage");
-  const items = useMemo(() => catalog.filter((c) => c.category === tab), [catalog, tab]);
+
+  const building: Building | undefined = useMemo(() => {
+    if (!tile) return undefined;
+    return state.buildings.find((b) => b.x === tile.x && b.y === tile.y);
+  }, [tile, state.buildings]);
+
+  const catalogById = useMemo(
+    () => new Map(catalog.map((c) => [c.id, c])),
+    [catalog]
+  );
+
+  const items = useMemo(
+    () => catalog.filter((c) => c.category === tab),
+    [catalog, tab]
+  );
+
+  if (mode === "view" && building) {
+    const item = catalogById.get(building.catalog_id);
+    const cat = item ? CATEGORY_COLORS[item.category] : { highlight: COLORS.accent, base: COLORS.surface };
+    const isBuilding = building.status === "building";
+    return (
+      <Modal animationType="slide" transparent visible onRequestClose={onClose}>
+        <View style={styles.backdrop}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={onClose} testID="build-drawer-close-area" />
+          <View style={styles.sheet} testID="build-drawer">
+            <View style={styles.handle} />
+            <View style={styles.header}>
+              <Text style={styles.title}>BUILDING INFO</Text>
+              <TouchableOpacity onPress={onClose} testID="build-drawer-close">
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {item ? (
+              <View style={styles.viewBody}>
+                <View style={[styles.viewIconBox, { backgroundColor: cat.base }]}>
+                  <Ionicons name={iconFor(item.category)} size={32} color={cat.highlight} />
+                </View>
+                <Text style={styles.viewName}>{item.name}</Text>
+                <View style={[styles.statusPill, { borderColor: isBuilding ? COLORS.warning + "88" : COLORS.success + "88" }]}>
+                  <Text style={[styles.statusText, { color: isBuilding ? COLORS.warning : COLORS.success }]}>
+                    {isBuilding ? "⚙️ UNDER CONSTRUCTION" : "✓ READY"}
+                  </Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <InfoChip icon="flash" color={COLORS.secondary} label={`Score: ${item.score}`} />
+                  <InfoChip icon="layers" color={COLORS.accent} label={`Tier ${item.tier}`} />
+                </View>
+                <View style={styles.viewActions}>
+                  {isBuilding && (
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { borderColor: COLORS.secondary + "66", backgroundColor: COLORS.secondary + "18" }]}
+                      onPress={() => onSpeedup(building.id)}
+                      testID="view-speedup-btn"
+                    >
+                      <Ionicons name="flash" size={16} color={COLORS.secondary} />
+                      <Text style={[styles.actionBtnText, { color: COLORS.secondary }]}>SPEED UP</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { borderColor: COLORS.error + "66", backgroundColor: COLORS.error + "18" }]}
+                    onPress={() => onDemolish(building.id)}
+                    testID="view-demolish-btn"
+                  >
+                    <Ionicons name="trash" size={16} color={COLORS.error} />
+                    <Text style={[styles.actionBtnText, { color: COLORS.error }]}>DEMOLISH</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <Text style={{ color: COLORS.textSecondary, padding: 20 }}>Unknown building</Text>
+            )}
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" transparent visible onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <TouchableOpacity style={{ flex: 1 }} onPress={onClose} testID="build-drawer-close-area" />
         <View style={styles.sheet} testID="build-drawer">
@@ -60,14 +138,15 @@ export default function BuildDrawer({ visible, onClose, catalog, phase, coins, o
           </View>
           <ScrollView contentContainerStyle={styles.cardsWrap} showsVerticalScrollIndicator={false}>
             {items.map((item) => {
-              const locked = item.phase > phase;
-              const tooPoor = coins < item.cost;
-              const disabled = locked || tooPoor;
+              const locked = item.phase > state.phase;
+              const tooPoor = state.coins < item.cost;
+              const atCap = state.build_slots_used >= state.build_cap;
+              const disabled = locked || tooPoor || atCap;
               return (
                 <TouchableOpacity
                   key={item.id}
                   disabled={disabled}
-                  onPress={() => onPick(item)}
+                  onPress={() => onPlace(item.id)}
                   style={[
                     styles.card,
                     { borderColor: CATEGORY_COLORS[item.category].highlight + "55" },
@@ -76,17 +155,13 @@ export default function BuildDrawer({ visible, onClose, catalog, phase, coins, o
                   testID={`build-drawer-card-${item.id}`}
                 >
                   <View style={[styles.iconBox, { backgroundColor: CATEGORY_COLORS[item.category].base }]}>
-                    <Ionicons
-                      name={iconFor(item.category)}
-                      size={20}
-                      color={CATEGORY_COLORS[item.category].highlight}
-                    />
+                    <Ionicons name={iconFor(item.category)} size={20} color={CATEGORY_COLORS[item.category].highlight} />
                   </View>
                   <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
                   <View style={styles.cardStatsRow}>
                     <View style={styles.stat}>
                       <Ionicons name="cash" size={11} color={COLORS.accent} />
-                      <Text style={styles.statText}>{item.cost}</Text>
+                      <Text style={[styles.statText, tooPoor && !locked && { color: COLORS.error }]}>{item.cost}</Text>
                     </View>
                     <View style={styles.stat}>
                       <Ionicons name="time" size={11} color={COLORS.secondary} />
@@ -99,6 +174,11 @@ export default function BuildDrawer({ visible, onClose, catalog, phase, coins, o
                       <Text style={styles.lockTxt}>P{item.phase}</Text>
                     </View>
                   )}
+                  {atCap && !locked && (
+                    <View style={[styles.lockBadge, { backgroundColor: "rgba(255,0,85,0.7)" }]}>
+                      <Text style={styles.lockTxt}>FULL</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -108,6 +188,29 @@ export default function BuildDrawer({ visible, onClose, catalog, phase, coins, o
     </Modal>
   );
 }
+
+function InfoChip({ icon, color, label }: { icon: any; color: string; label: string }) {
+  return (
+    <View style={[infoChipStyle.wrap, { borderColor: color + "44" }]}>
+      <Ionicons name={icon} size={13} color={color} />
+      <Text style={[infoChipStyle.text, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+const infoChipStyle = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  text: { fontWeight: "700", fontSize: 12 },
+});
 
 function iconFor(cat: CatalogItem["category"]) {
   switch (cat) {
@@ -132,7 +235,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 16,
-    maxHeight: "55%",
+    maxHeight: "65%",
     borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
   },
@@ -153,7 +256,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 10,
     borderWidth: 1,
-    minHeight: 130,
+    minHeight: 120,
   },
   iconBox: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   cardName: { color: COLORS.textPrimary, fontSize: 12, fontWeight: "700", marginBottom: 6 },
@@ -163,7 +266,26 @@ const styles = StyleSheet.create({
   lockBadge: {
     position: "absolute", top: 8, right: 8,
     flexDirection: "row", alignItems: "center", gap: 3,
-    backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
+    backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
   },
   lockTxt: { color: COLORS.warning, fontSize: 9, fontWeight: "800" },
+  viewBody: { alignItems: "center", gap: 12, paddingBottom: 20 },
+  viewIconBox: {
+    width: 64, height: 64, borderRadius: 16,
+    alignItems: "center", justifyContent: "center",
+  },
+  viewName: { color: COLORS.textPrimary, fontSize: 20, fontWeight: "800" },
+  statusPill: {
+    borderWidth: 1, borderRadius: 999,
+    paddingHorizontal: 14, paddingVertical: 5,
+  },
+  statusText: { fontWeight: "800", fontSize: 11, letterSpacing: 1 },
+  infoRow: { flexDirection: "row", gap: 10 },
+  viewActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  actionBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderRadius: 10,
+    paddingHorizontal: 16, paddingVertical: 10,
+  },
+  actionBtnText: { fontWeight: "800", fontSize: 13 },
 });

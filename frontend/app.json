@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "FestyVille",
+    "slug": "festyville",
+    "version": "1.0.0",
+    "scheme": "festyville",
+    "platforms": ["ios", "android", "web"],
+    "plugins": [
+      "expo-router"
+    ],
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    }
+  }
+}

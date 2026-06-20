@@ -20,15 +20,39 @@ from festival_simulation import apply_genre_bonus
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("festyville")
+
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://127.0.0.1:27017')
+_db_name = os.environ.get('DB_NAME', 'festyville')
+
+try:
+    import pymongo
+    _test_client = pymongo.MongoClient(mongo_url, serverSelectionTimeoutMS=1500)
+    _test_client.admin.command('ping')
+    _test_client.close()
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[_db_name]
+    logger.info("Connected to real MongoDB at %s", mongo_url)
+except Exception as _mongo_err:
+    logger.warning(
+        "MongoDB not reachable (%s) — starting with in-memory mongomock. "
+        "Data will NOT persist across restarts.",
+        _mongo_err,
+    )
+    try:
+        import mongomock_motor
+        client = mongomock_motor.AsyncMongoMockClient()
+        db = client[_db_name]
+        logger.info("Using in-memory mongomock_motor database.")
+    except ImportError:
+        raise RuntimeError(
+            "MongoDB is unreachable and mongomock-motor is not installed. "
+            "Run: pip install mongomock-motor typing_extensions"
+        ) from _mongo_err
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("festyville")
 
 # ---------- Firebase ID-token verification ----------
 FIREBASE_PROJECT_ID = (os.environ.get("FIREBASE_PROJECT_ID") or "").strip().strip('"').strip("'") or None

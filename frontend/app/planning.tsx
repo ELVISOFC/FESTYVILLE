@@ -21,11 +21,14 @@ import {
   type CatalogItem,
 } from "../src/api";
 import { COLORS } from "../src/theme";
+import { hapticLight } from "../src/haptics";
 import { Analytics } from "../src/analytics";
 import TutorialModal from "../src/components/TutorialModal";
 import CharacterBubble from "../src/components/CharacterBubble";
 import MiniGameModal from "../src/components/MiniGameModal";
 import AchievementToast from "../src/components/AchievementToast";
+import FloatingReward, { type FloatingRewardEntry } from "../src/components/FloatingReward";
+import DayTransition from "../src/components/DayTransition";
 import { computeScore, computeChemistry, type ScoreBreakdown } from "../src/lib/scoring";
 
 // ---------------------------------------------------------------------------
@@ -193,6 +196,9 @@ export default function Planning() {
   const [miniGameOpen, setMiniGameOpen] = useState(false);
   const [toastAchs,    setToastAchs]   = useState<Achievement[]>([]);
   const toastQueue = useRef<Achievement[][]>([]);
+  const [floatingRewards, setFloatingRewards] = useState<FloatingRewardEntry[]>([]);
+  const [dayTransitionVisible, setDayTransitionVisible] = useState(false);
+  const dayTransitionResolveRef = useRef<(() => void) | null>(null);
 
   const showAchievements = (achs: Achievement[]) => {
     if (!achs || achs.length === 0) return;
@@ -203,6 +209,14 @@ export default function Planning() {
   const drainQueue = () => {
     const next = toastQueue.current.shift();
     if (next) setToastAchs(next);
+  };
+
+  const pushReward = (delta: number, kind: FloatingRewardEntry["kind"]) => {
+    if (delta === 0) return;
+    setFloatingRewards((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${kind}-${Math.random()}`, amount: Math.abs(delta), kind, sign: delta > 0 ? "+" : "-" },
+    ]);
   };
 
   useEffect(() => {
@@ -320,9 +334,13 @@ export default function Planning() {
     if (!state || busy) return;
     setBusy(true);
     const inLineup = state.lineup.includes(a.id);
+    const prevCoins = state.coins;
     try {
       const s = inLineup ? await api.unbookArtist(a.id) : await api.bookArtist(a.id);
       setState(s as PlayerState);
+      const coinDelta = (s as PlayerState).coins - prevCoins;
+      if (coinDelta !== 0) pushReward(coinDelta, "coins");
+      void hapticLight();
       if (!inLineup && (s as any).new_achievements?.length) {
         showAchievements((s as any).new_achievements);
       }
@@ -332,24 +350,58 @@ export default function Planning() {
     finally { setBusy(false); }
   };
 
+  const handleDayTransitionComplete = () => {
+    dayTransitionResolveRef.current?.();
+    dayTransitionResolveRef.current = null;
+  };
+
   const endDay = async () => {
     if (!state || busy) return;
     setBusy(true);
+
+    // Days 1-6: show the brief transition overlay immediately (before the await)
+    // and run the API request in parallel. Promise.all ensures state is only
+    // applied after BOTH the overlay animation AND the request are done, so the
+    // overlay always plays its full ~720ms even on a fast connection.
+    // Day 7+: no overlay — the Run Festival / SimulationOverlay handles that.
+    const isRoutineAdvance = state.day < 7;
+    let overlayDoneP: Promise<void> = Promise.resolve();
+    if (isRoutineAdvance) {
+      setDayTransitionVisible(true);
+      overlayDoneP = new Promise<void>((resolve) => {
+        dayTransitionResolveRef.current = resolve;
+      });
+    }
+
     try {
-      const s = await api.advanceDay();
+      const [s] = await Promise.all([api.advanceDay(), overlayDoneP]);
+      setDayTransitionVisible(false);
       setState(s as PlayerState);
+      const le = (s as PlayerState).last_event;
+      if (le) {
+        if (le.coins !== 0) pushReward(le.coins, "coins");
+        if (le.xp !== 0) pushReward(le.xp, "xp");
+      }
+      void hapticLight();
       Analytics.dayAdvanced(s.day, s.cycle);
       if ((s as any).new_achievements?.length) {
         showAchievements((s as any).new_achievements);
       }
-    } catch (e: any) { alertOrLog("Cannot end day", e.message); }
-    finally { setBusy(false); }
+    } catch (e: any) {
+      dayTransitionResolveRef.current = null;
+      setDayTransitionVisible(false);
+      alertOrLog("Cannot end day", e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleMiniGameReward = async (_coins: number, _xp: number) => {
     try {
       const s = await api.state();
       setState(s as PlayerState);
+      if (_coins !== 0) pushReward(_coins, "coins");
+      if (_xp !== 0) pushReward(_xp, "xp");
     } catch {}
   };
 
@@ -373,6 +425,17 @@ export default function Planning() {
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
       {/* Achievement toast */}
+      <FloatingReward
+        rewards={floatingRewards}
+        onDone={(id) => setFloatingRewards((prev) => prev.filter((r) => r.id !== id))}
+        style={{ top: insets.top + 50, right: 16 }}
+      />
+      <DayTransition
+        visible={dayTransitionVisible}
+        day={state?.day ?? 1}
+        onComplete={handleDayTransitionComplete}
+      />
+
       {toastAchs.length > 0 && (
         <AchievementToast achievements={toastAchs} onDone={() => { setToastAchs([]); drainQueue(); }} />
       )}

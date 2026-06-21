@@ -21,6 +21,7 @@ import {
   type Achievement,
 } from "../src/api";
 import { COLORS } from "../src/theme";
+import { hapticLight, hapticSuccess, hapticWarning } from "../src/haptics";
 import { Analytics } from "../src/analytics";
 import { computeScore } from "../src/lib/scoring";
 import HUD from "../src/components/HUD";
@@ -28,6 +29,7 @@ import BuildDrawer from "../src/components/BuildDrawer";
 import IsometricGrid, { TILE_W, TILE_H } from "../src/components/IsometricGrid";
 import AchievementToast from "../src/components/AchievementToast";
 import TutorialModal from "../src/components/TutorialModal";
+import FloatingReward, { type FloatingRewardEntry } from "../src/components/FloatingReward";
 
 export default function Index() {
   const insets = useSafeAreaInsets();
@@ -44,6 +46,7 @@ export default function Index() {
   const [drawerMode, setDrawerMode] = useState<"build" | "view">("build");
   const [drawerTile, setDrawerTile] = useState<{ x: number; y: number } | null>(null);
   const [achievementStack, setAchievementStack] = useState<Achievement[] | null>(null);
+  const [floatingRewards, setFloatingRewards] = useState<FloatingRewardEntry[]>([]);
   const [tick, setTick] = useState(0);
   const lastPolledRef = useRef(0);
 
@@ -154,11 +157,22 @@ export default function Index() {
     setDrawerOpen(true);
   };
 
+  const pushReward = (delta: number, kind: FloatingRewardEntry["kind"]) => {
+    if (delta === 0) return;
+    setFloatingRewards((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${kind}-${Math.random()}`, amount: Math.abs(delta), kind, sign: delta > 0 ? "+" : "-" },
+    ]);
+  };
+
   const doPlace = async (cid: string) => {
     if (!drawerTile) return;
+    const prevCoins = state?.coins ?? 0;
     try {
       const result = await api.place(cid, drawerTile.x, drawerTile.y);
       setState(result as PlayerState);
+      pushReward((result as PlayerState).coins - prevCoins, "coins");
+      void hapticLight();
       setDrawerOpen(false);
     } catch (e: any) {
       alertOrLog("Place Error", e.message || String(e));
@@ -166,9 +180,12 @@ export default function Index() {
   };
 
   const doSpeedup = async (bid: string) => {
+    const prevCoins = state?.coins ?? 0;
     try {
       const result = await api.speedup(bid);
       setState(result as PlayerState);
+      pushReward((result as PlayerState).coins - prevCoins, "coins");
+      void hapticLight();
       setDrawerOpen(false);
     } catch (e: any) {
       alertOrLog("Speedup Error", e.message || String(e));
@@ -218,6 +235,16 @@ export default function Index() {
       const result = await api.simulate(breakdown);
 
       setState((prev) => ({ ...prev!, ...result.state }));
+      if (result.rewards.coins !== 0) pushReward(result.rewards.coins, "coins");
+      if (result.rewards.xp !== 0) pushReward(result.rewards.xp, "xp");
+
+      if (result.grade === "S" || result.grade === "A") {
+        void hapticSuccess();
+      } else if (result.grade === "D" || result.grade === "F") {
+        void hapticWarning();
+      } else {
+        void hapticLight();
+      }
 
       Analytics.eventOccurred("festival_run", {
         grade: result.grade,
@@ -386,6 +413,12 @@ export default function Index() {
           onDone={() => setAchievementStack(null)}
         />
       )}
+
+      <FloatingReward
+        rewards={floatingRewards}
+        onDone={(id) => setFloatingRewards((prev) => prev.filter((r) => r.id !== id))}
+        style={{ top: insets.top + 8, right: 50 }}
+      />
 
       {showSpecPicker && (
         <TutorialModal

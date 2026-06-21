@@ -9,6 +9,7 @@
         "@react-native-async-storage/async-storage": "1.23.1",
         "expo": "~55.0.0",
         "expo-font": "~13.0.0",
+        "expo-haptics": "^56.0.3",
         "expo-linking": "~7.0.0",
         "expo-router": "~4.0.0",
         "expo-splash-screen": "~0.29.0",
@@ -838,6 +839,8 @@
     "expo-file-system": ["expo-file-system@55.0.22", "http://package-firewall.replit.local/npm/expo-file-system/-/expo-file-system-55.0.22.tgz", { "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-T5Rfv3vqcFyhVrl/tEEeglc/J8LJbcZQgC3TMT5jxzIgUgWmIgJEgncGYqB/YNXFgUTL2LiuCvqrU51Dzp83NQ=="],
 
     "expo-font": ["expo-font@13.0.4", "http://package-firewall.replit.local/npm/expo-font/-/expo-font-13.0.4.tgz", { "dependencies": { "fontfaceobserver": "^2.1.0" }, "peerDependencies": { "expo": "*", "react": "*" } }, "sha512-eAP5hyBgC8gafFtprsz0HMaB795qZfgJWqTmU0NfbSin1wUuVySFMEPMOrTkTgmazU73v4Cb4x7p86jY1XXYUw=="],
+
+    "expo-haptics": ["expo-haptics@56.0.3", "http://package-firewall.replit.local/npm/expo-haptics/-/expo-haptics-56.0.3.tgz", { "peerDependencies": { "expo": "*" } }, "sha512-ycoahZJnR9tWAVh/0mJYxbETtHRYaWjiWS8cHlP6aDGU6Q6Y8rZ5NKsuBwWw6HR2Pe30mfVFgbF2HrBR6gtYmw=="],
 
     "expo-json-utils": ["expo-json-utils@0.14.0", "http://package-firewall.replit.local/npm/expo-json-utils/-/expo-json-utils-0.14.0.tgz", {}, "sha512-xjGfK9dL0B1wLnOqNkX0jM9p48Y0I5xEPzHude28LY67UmamUyAACkqhZGaPClyPNfdzczk7Ej6WaRMT3HfXvw=="],
 

@@ -1,5 +1,5 @@
+import { useEffect, useRef, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -8,10 +8,116 @@ import {
   ScrollView,
   Animated,
   Easing,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Svg, Rect, Circle } from "react-native-svg";
 import { COLORS, GRADE_COLORS } from "../src/theme";
 import { Ionicons } from "@expo/vector-icons";
+
+// ---------------------------------------------------------------------------
+// Confetti
+// ---------------------------------------------------------------------------
+
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+const CATEGORY_COLORS = ["#FF0055", "#00FFFF", "#FF9900", "#00FF66", "#FFD700"];
+const PIECE_COUNT = 14;
+
+type CPiece = {
+  x: Animated.Value;
+  y: Animated.Value;
+  opacity: Animated.Value;
+  targetX: number;
+  targetY: number;
+  color: string;
+  size: number;
+  isRect: boolean;
+};
+
+function ConfettiBurst({ cx, cy }: { cx: number; cy: number }) {
+  const allColors = [...Object.values(GRADE_COLORS), ...CATEGORY_COLORS];
+
+  const pieces = useRef<CPiece[]>(
+    Array.from({ length: PIECE_COUNT }, (_, i) => {
+      const angle =
+        (i / PIECE_COUNT) * Math.PI * 2 + (((i * 7919) % 100) / 100 - 0.5) * 0.45;
+      const dist = 58 + ((i * 1301) % 70);
+      return {
+        x: new Animated.Value(cx),
+        y: new Animated.Value(cy),
+        opacity: new Animated.Value(1),
+        targetX: cx + Math.cos(angle) * dist,
+        targetY: cy + Math.sin(angle) * dist,
+        color: allColors[i % allColors.length],
+        size: 5 + (i % 5),
+        isRect: i % 3 !== 0,
+      };
+    })
+  ).current;
+
+  useEffect(() => {
+    const anims = pieces.map((p) =>
+      Animated.parallel([
+        Animated.timing(p.x, {
+          toValue: p.targetX,
+          duration: 1200,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(p.y, {
+          toValue: p.targetY,
+          duration: 1200,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.sequence([
+          Animated.delay(240),
+          Animated.timing(p.opacity, {
+            toValue: 0,
+            duration: 860,
+            useNativeDriver: false,
+          }),
+        ]),
+      ])
+    );
+    Animated.parallel(anims).start();
+  }, []);
+
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Svg width="100%" height="100%">
+        {pieces.map((p, i) =>
+          p.isRect ? (
+            <AnimatedRect
+              key={i}
+              x={p.x}
+              y={p.y}
+              width={p.size}
+              height={p.size * 1.6}
+              fill={p.color}
+              opacity={p.opacity}
+            />
+          ) : (
+            <AnimatedCircle
+              key={i}
+              cx={p.x}
+              cy={p.y}
+              r={p.size * 0.65}
+              fill={p.color}
+              opacity={p.opacity}
+            />
+          )
+        )}
+      </Svg>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dims config
+// ---------------------------------------------------------------------------
 
 const DIMS: { key: string; label: string; color: string; max: number }[] = [
   { key: "stage_score",      label: "STAGE SCORE",      color: "#FF0055", max: 100 },
@@ -21,9 +127,17 @@ const DIMS: { key: string; label: string; color: string; max: number }[] = [
   { key: "aesthetic",        label: "AESTHETIC",        color: "#FFD700", max: 100 },
 ];
 
+// Total stagger wall-clock: 100ms * (N-1) + 700ms per bar = 1100ms for 5 bars.
+const STAGGER_TOTAL_MS = 100 * (DIMS.length - 1) + 700;
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
 export default function ResultScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
   const { grade, score, breakdown } = useLocalSearchParams<{
     grade: string;
     score: string;
@@ -34,31 +148,56 @@ export default function ResultScreen() {
   const bd = breakdown ? JSON.parse(breakdown) : {};
   const gradeColor = GRADE_COLORS[grade ?? "F"] ?? COLORS.accent;
 
+  const [displayedScore, setDisplayedScore] = useState(0);
+  const [showConfetti, setShowConfetti] = useState(false);
+
   const barAnims = useRef(DIMS.map(() => new Animated.Value(0))).current;
   const gradeScale = useRef(new Animated.Value(0)).current;
+  const scoreAnim = useRef(new Animated.Value(0)).current;
+  const gradeCenterRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     barAnims.forEach((a) => a.setValue(0));
     gradeScale.setValue(0);
+    scoreAnim.setValue(0);
+    setDisplayedScore(0);
 
-    Animated.stagger(
-      100,
-      DIMS.map((d, i) =>
-        Animated.timing(barAnims[i], {
-          toValue: bd[d.key] ?? 0,
-          duration: 700,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: false,
-        })
-      )
-    ).start(() => {
+    const listenerId = scoreAnim.addListener(({ value }) => {
+      setDisplayedScore(Math.round(value));
+    });
+
+    Animated.parallel([
+      Animated.stagger(
+        100,
+        DIMS.map((d, i) =>
+          Animated.timing(barAnims[i], {
+            toValue: bd[d.key] ?? 0,
+            duration: 700,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          })
+        )
+      ),
+      Animated.timing(scoreAnim, {
+        toValue: composite,
+        duration: STAGGER_TOTAL_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
       Animated.spring(gradeScale, {
         toValue: 1,
         friction: 5,
         tension: 80,
         useNativeDriver: true,
-      }).start();
+      }).start(() => {
+        if (grade === "S") setShowConfetti(true);
+      });
     });
+
+    return () => {
+      scoreAnim.removeListener(listenerId);
+    };
   }, []);
 
   return (
@@ -69,14 +208,23 @@ export default function ResultScreen() {
       >
         <Text style={styles.heading}>FESTIVAL RESULTS</Text>
 
-        <Animated.View style={{ transform: [{ scale: gradeScale }], alignItems: "center", marginBottom: 16 }}>
+        <Animated.View
+          onLayout={(e) => {
+            const { y, width: w, height: h } = e.nativeEvent.layout;
+            gradeCenterRef.current = {
+              x: windowWidth / 2,
+              y: insets.top + 20 + y + h / 2,
+            };
+          }}
+          style={{ transform: [{ scale: gradeScale }], alignItems: "center", marginBottom: 16 }}
+        >
           <Text
             style={[styles.grade, { color: gradeColor, textShadowColor: gradeColor }]}
             testID={`results-grade-${grade}`}
           >
             {grade ?? "F"}
           </Text>
-          <Text style={styles.compositeNum}>{composite}/100</Text>
+          <Text style={styles.compositeNum}>{displayedScore}/100</Text>
         </Animated.View>
 
         <View style={styles.card} testID="simulation-results-modal">
@@ -117,6 +265,13 @@ export default function ResultScreen() {
           <Text style={styles.ctaText}>CONTINUE</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {showConfetti && (
+        <ConfettiBurst
+          cx={gradeCenterRef.current.x}
+          cy={gradeCenterRef.current.y}
+        />
+      )}
     </View>
   );
 }

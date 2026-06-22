@@ -343,7 +343,7 @@ export default function Index() {
   const sortedBuildings = [...state.buildings].sort((a, b) => a.x + a.y - (b.x + b.y));
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 6 }]}>
+    <View style={[styles.root, { paddingTop: insets.top + 20 }]}>
       <View testID="top-hud">
         <HUD
           coins={state.coins}

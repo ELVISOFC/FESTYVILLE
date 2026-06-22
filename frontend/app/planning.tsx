@@ -14,6 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
   api,
+  loadCachedArtists,
+  loadCachedState,
+  loadCachedCatalog,
   type Artist,
   type Genre,
   type PlayerState,
@@ -228,9 +231,9 @@ export default function Planning() {
     //    clobber a faster server response that already landed.
     (async () => {
       const [cachedArtists, cachedState, cachedCatalog] = await Promise.all([
-        api.loadCachedArtists(),
-        api.loadCachedState(),
-        api.loadCachedCatalog(),
+        loadCachedArtists(),
+        loadCachedState(),
+        loadCachedCatalog(),
       ]);
       if (cancelled) return;
       if (cachedArtists) {

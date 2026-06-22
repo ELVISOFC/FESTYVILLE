@@ -1,0 +1,64 @@
+PRE-PLANNING
+Cycle 1 · Day 1 / 7
+CYCLE GOAL · LINEUP
+Book 2 artists from the same genre.
+Reward: +200 coins +200 reputation
+🎯 DAILY CHALLENGE
+Book at least 1 artist this cycle
++200c
++30 XP
+1. PICK A GENRE
+2. BOOK THE LINEUP
+Pick a genre first to see eligible artists.
+⚡ LIVE SCORE
+0
+F
+Stage
+0/30
+Crowd
+6/20
+Vendor
+0/20
+Utility
+0/15
+Aesthetic
+0/15
+Place buildings on your lot to see your score
+!
+
+Log 1 of 1
+Uncaught Error
+_srcApi.api.loadCachedArtists is not a function
+Call Stack
+
+Source Map
+This call stack is not symbolicated. Some features are unavailable such as viewing the function name or tapping to open files.
+<unknown>
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:202919:92
+<unknown>
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:202935:9
+commitHookEffectListMount
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:27842:32
+commitPassiveMountOnFiber
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:29335:19
+commitPassiveMountEffects_complete
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:29307:15
+commitPassiveMountEffects_begin
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:29297:13
+commitPassiveMountEffects
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:29287:9
+flushPassiveEffectsImpl
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:31170:9
+flushPassiveEffects
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:31123:20
+commitRootImpl
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:31082:11
+commitRoot
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:30865:11
+performSyncWorkOnRoot
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:30374:9
+flushSyncCallbacks
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:18344:28
+<unknown>
+https://bb0ec07e-8564-4eaf-ad70-1aa762ca301a-00-1tbmwgapwb70b.janeway.replit.dev/node_modules/expo-router/entry.bundle:29979:19
+Showing all frames

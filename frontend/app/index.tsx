@@ -389,7 +389,43 @@ export default function Index() {
         )}
       </View>
 
-      <GestureDetector gesture={composed}>
+      {/* Pinch-to-zoom only applies on native — GestureDetector on web swallows
+          tile taps (the double-tap recognizer delays single-tap events and they
+          never reach the Pressable touch targets inside IsometricGrid). */}
+      {Platform.OS !== "web" ? (
+        <GestureDetector gesture={composed}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ alignItems: "center" }}
+            style={styles.worldScrollX}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: 16 }}
+            >
+              <Animated.View
+                style={[
+                  { width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 },
+                  animatedGridStyle,
+                ]}
+                testID="isometric-playfield"
+              >
+                <View style={{ width: worldWidth, height: worldHeight }}>
+                  <IsometricGrid
+                    gridSize={gridSize}
+                    selected={selectedTile}
+                    onTilePress={handleTilePress}
+                    buildings={sortedBuildings}
+                    catalog={catalog}
+                    serverNow={state.server_time}
+                  />
+                </View>
+              </Animated.View>
+            </ScrollView>
+          </ScrollView>
+        </GestureDetector>
+      ) : (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -400,11 +436,8 @@ export default function Index() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingVertical: 16 }}
           >
-            <Animated.View
-              style={[
-                { width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 },
-                animatedGridStyle,
-              ]}
+            <View
+              style={{ width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 }}
               testID="isometric-playfield"
             >
               <View style={{ width: worldWidth, height: worldHeight }}>
@@ -417,10 +450,10 @@ export default function Index() {
                   serverNow={state.server_time}
                 />
               </View>
-            </Animated.View>
+            </View>
           </ScrollView>
         </ScrollView>
-      </GestureDetector>
+      )}
 
       <View style={styles.bottomBar}>
         <TouchableOpacity

@@ -151,7 +151,7 @@ function formatNum(n: number) {
 const styles = StyleSheet.create({
   root: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 4,
     backgroundColor: "rgba(0,0,0,0.3)",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
@@ -167,13 +167,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-start",
     height: 24,
-    marginTop: 6,
+    marginTop: 3,
     gap: 4,
   },
   divider: {
     height: 1,
     backgroundColor: "rgba(255,255,255,0.06)",
-    marginVertical: 4,
+    marginVertical: 2,
   },
   stat: {
     color: COLORS.textPrimary,

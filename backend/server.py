@@ -120,6 +120,15 @@ CATALOG_BY_ID = {item["id"]: item for item in CATALOG}
 GRID_SIZE = 8
 DAYS_PER_CYCLE = 7
 
+# Phase-gated grid expansion: maps phase → unlocked grid size.
+# Phase 1–2 → 8×8, Phase 3–4 → 9×9, Phase 5–6 → 10×10, Phase 7+ → 11×11.
+PHASE_TO_GRID_SIZE: Dict[int, int] = {1: 8, 2: 8, 3: 9, 4: 9, 5: 10, 6: 10}
+VISUAL_GRID_MAX = 11  # absolute ceiling (Phase 7+)
+
+
+def get_grid_size_for_phase(phase: int) -> int:
+    return PHASE_TO_GRID_SIZE.get(phase, VISUAL_GRID_MAX)
+
 GENRES = [
     {"id": "edm",     "label": "EDM Blowout"},
     {"id": "indie",   "label": "Indie / Folk"},
@@ -426,11 +435,15 @@ def get_caps(phase: int) -> dict:
     return SLOT_CAPS.get(phase, SLOT_CAPS[4])
 
 def state_with_caps(state: dict) -> dict:
-    caps = get_caps(state.get("phase", 1))
+    phase = state.get("phase", 1)
+    caps = get_caps(phase)
     active = sum(1 for b in state.get("buildings", []) if b.get("status") != "destroyed")
     booked = len(state.get("lineup", []))
+    grid_size = get_grid_size_for_phase(phase)
+    state["grid_size"] = grid_size
     return {**state, "build_cap": caps["build"], "artist_cap": caps["artist"],
-            "build_slots_used": active, "artist_slots_used": booked}
+            "build_slots_used": active, "artist_slots_used": booked,
+            "grid_size": grid_size}
 
 GOALS = {
     "infra": [
@@ -885,7 +898,8 @@ async def place_building(player_id: str, req: PlaceRequest):
         raise HTTPException(404, "Unknown building")
     if item["phase"] > state["phase"]:
         raise HTTPException(400, f"Locked. Reach phase {item['phase']} to unlock.")
-    if not (0 <= req.x < GRID_SIZE and 0 <= req.y < GRID_SIZE):
+    player_grid_size = get_grid_size_for_phase(state["phase"])
+    if not (0 <= req.x < player_grid_size and 0 <= req.y < player_grid_size):
         raise HTTPException(400, "Tile out of bounds")
     for b in state["buildings"]:
         if b["x"] == req.x and b["y"] == req.y:

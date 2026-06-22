@@ -9,6 +9,12 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
+import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -26,10 +32,13 @@ import { Analytics } from "../src/analytics";
 import { computeScore } from "../src/lib/scoring";
 import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
-import IsometricGrid, { TILE_W, TILE_H } from "../src/components/IsometricGrid";
+import IsometricGrid, { TILE_W, TILE_H, VISUAL_MAX } from "../src/components/IsometricGrid";
 import AchievementToast from "../src/components/AchievementToast";
 import TutorialModal from "../src/components/TutorialModal";
 import FloatingReward, { type FloatingRewardEntry } from "../src/components/FloatingReward";
+
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.5;
 
 export default function Index() {
   const insets = useSafeAreaInsets();
@@ -40,7 +49,6 @@ export default function Index() {
   const [offline, setOffline] = useState(false);
   const [showSpecPicker, setShowSpecPicker] = useState(false);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [gridSize, setGridSize] = useState(8);
   const [selectedTile, setSelectedTile] = useState<{ x: number; y: number } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"build" | "view">("build");
@@ -49,6 +57,35 @@ export default function Index() {
   const [floatingRewards, setFloatingRewards] = useState<FloatingRewardEntry[]>([]);
   const [tick, setTick] = useState(0);
   const lastPolledRef = useRef(0);
+
+  const gridSize = state?.grid_size ?? 8;
+
+  // ── Pinch-to-zoom ──────────────────────────────────────────────────────────
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((e) => {
+      const next = savedScale.value * e.scale;
+      scale.value = Math.min(Math.max(next, ZOOM_MIN), ZOOM_MAX);
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+    });
+
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      scale.value = withSpring(1);
+      savedScale.value = 1;
+    });
+
+  const composed = Gesture.Simultaneous(pinchGesture, doubleTapGesture);
+
+  const animatedGridStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (state && !state.specialization) setShowSpecPicker(true);
@@ -86,7 +123,6 @@ export default function Index() {
       if (cancelled) return;
       if (cachedCat) {
         setCatalog((prev) => (prev.length ? prev : cachedCat.catalog));
-        setGridSize((prev) => prev || cachedCat.grid_size);
       }
       if (cachedState) {
         setState((prev) => {
@@ -102,7 +138,6 @@ export default function Index() {
         const [c, s] = await Promise.all([api.catalog(), api.state()]);
         if (cancelled) return;
         setCatalog(c.catalog);
-        setGridSize(c.grid_size);
         setState(s as PlayerState);
         setOffline(false);
         setLoadError(null);
@@ -303,8 +338,8 @@ export default function Index() {
     );
   }
 
-  const worldWidth = gridSize * TILE_W;
-  const worldHeight = (gridSize + 1) * TILE_H + 80;
+  const worldWidth = VISUAL_MAX * TILE_W;
+  const worldHeight = (VISUAL_MAX + 1) * TILE_H + 80;
   const sortedBuildings = [...state.buildings].sort((a, b) => a.x + a.y - (b.x + b.y));
 
   return (
@@ -354,33 +389,38 @@ export default function Index() {
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ alignItems: "center" }}
-        style={styles.worldScrollX}
-      >
+      <GestureDetector gesture={composed}>
         <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingVertical: 16 }}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ alignItems: "center" }}
+          style={styles.worldScrollX}
         >
-          <View
-            style={{ width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 }}
-            testID="isometric-playfield"
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingVertical: 16 }}
           >
-            <View style={{ width: worldWidth, height: worldHeight }}>
-              <IsometricGrid
-                gridSize={gridSize}
-                selected={selectedTile}
-                onTilePress={handleTilePress}
-                buildings={sortedBuildings}
-                catalog={catalog}
-                serverNow={state.server_time}
-              />
-            </View>
-          </View>
+            <Animated.View
+              style={[
+                { width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 },
+                animatedGridStyle,
+              ]}
+              testID="isometric-playfield"
+            >
+              <View style={{ width: worldWidth, height: worldHeight }}>
+                <IsometricGrid
+                  gridSize={gridSize}
+                  selected={selectedTile}
+                  onTilePress={handleTilePress}
+                  buildings={sortedBuildings}
+                  catalog={catalog}
+                  serverNow={state.server_time}
+                />
+              </View>
+            </Animated.View>
+          </ScrollView>
         </ScrollView>
-      </ScrollView>
+      </GestureDetector>
 
       <View style={styles.bottomBar}>
         <TouchableOpacity

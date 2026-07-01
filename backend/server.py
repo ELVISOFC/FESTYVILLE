@@ -174,45 +174,49 @@ GENRE_COMPATIBILITY: Dict[str, Dict[str, float]] = {
 }
 
 def compute_adjacency_bonuses(buildings: List[Dict], catalog_by_id: Dict) -> Dict:
-    """Compute per-building adjacency bonuses using 4-connected neighbours only.
+    """Compute building adjacency effects using 4-connected neighbours only.
+    All effects are applied post-cheat-check (server-only, like spec modifiers).
 
     Rules:
-      Hotspot:         vendor   adjacent to a stage       → +5 per qualifying vendor
-      Backstage Ready: utility  adjacent to a stage       → +3 per qualifying utility
-      Centrepiece:     decor    adjacent to 2+ non-decor  → +8 per qualifying decor
+      Hotspot:         ready vendor adjacent to a ready stage        → +5 score per qualifying vendor
+      Backstage Ready: ready utility adjacent to an in-progress stage → −2 penalty per qualifying utility
+      Centrepiece:     ready decor adjacent to 2+ ready non-decor    → +8 score per qualifying decor
     """
-    ready = [b for b in buildings if b.get("status") == "ready"]
-    pos_map = {(b["x"], b["y"]): b for b in ready}
+    pos_map: Dict = {(b["x"], b["y"]): b for b in buildings}
+    ready_set = frozenset((b["x"], b["y"]) for b in buildings if b.get("status") == "ready")
 
     def get_cat(b: Dict) -> str:
         return catalog_by_id.get(b["catalog_id"], {}).get("category", "")
 
-    def nb_buildings(x: int, y: int) -> List[Dict]:
-        return [pos_map[n] for n in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)) if n in pos_map]
+    def nb4(x: int, y: int) -> List[Dict]:
+        return [pos_map[p] for p in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)) if p in pos_map]
 
-    hotspot = backstage = centrepiece = 0
+    hotspot = centrepiece = 0
 
-    for b in ready:
+    for b in buildings:
+        if b.get("status") != "ready":
+            continue
         cat = get_cat(b)
-        nbs = nb_buildings(b["x"], b["y"])
+        ready_nbs = [n for n in nb4(b["x"], b["y"]) if (n["x"], n["y"]) in ready_set]
         if cat == "vendor":
-            if any(get_cat(n) == "stage" for n in nbs):
+            if any(get_cat(n) == "stage" for n in ready_nbs):
                 hotspot += 1
-        elif cat == "utility":
-            if any(get_cat(n) == "stage" for n in nbs):
-                backstage += 1
         elif cat == "decor":
-            if sum(1 for n in nbs if get_cat(n) != "decor") >= 2:
+            if sum(1 for n in ready_nbs if get_cat(n) != "decor") >= 2:
                 centrepiece += 1
 
+    # Backstage Ready: count in-progress stages that have ≥1 ready utility neighbour
+    backstage = 0
+    for b in buildings:
+        if b.get("status") != "building" or get_cat(b) != "stage":
+            continue
+        if any((n["x"], n["y"]) in ready_set and get_cat(n) == "utility" for n in nb4(b["x"], b["y"])):
+            backstage += 1
+
     return {
-        "total":            hotspot * 5 + backstage * 3 + centrepiece * 8,
-        "hotspot":          hotspot,
-        "backstage":        backstage,
-        "centrepiece":      centrepiece,
-        "hotspot_bonus":    hotspot * 5,
-        "backstage_bonus":  backstage * 3,
-        "centrepiece_bonus": centrepiece * 8,
+        "hotspot":     hotspot,
+        "backstage":   backstage,   # each reduces penalty by 2
+        "centrepiece": centrepiece,
     }
 
 
@@ -1137,10 +1141,7 @@ async def simulate(player_id: str, req: SimulateRequest):
         + utility_coverage * weights["utility"]
         + aesthetic * weights["aesthetic"]
     )
-    adj = compute_adjacency_bonuses(state["buildings"], CATALOG_BY_ID)
-    adjacency_bonus = adj["total"]
-
-    composite = max(0, int(composite - penalty + genre_bonus + chemistry_bonus + adjacency_bonus))
+    composite = max(0, int(composite - penalty + genre_bonus + chemistry_bonus))
 
     # ── Cheat-resistance: validate client-submitted score ───────────────
     # Server's composite is the authoritative value. The client's submission
@@ -1193,8 +1194,18 @@ async def simulate(player_id: str, req: SimulateRequest):
             + vendor_coverage * weights["vendor"]
             + utility_coverage * weights["utility"]
             + aesthetic      * weights["aesthetic"]
-            - penalty + genre_bonus + chemistry_bonus + adjacency_bonus + spec_sig_bonus
+            - penalty + genre_bonus + chemistry_bonus + spec_sig_bonus
         ))
+
+    # ── Adjacency bonuses (server-only, applied after cheat-check and spec mods) ──
+    # Hotspot: +5 per ready vendor next to a ready stage (score bonus)
+    # Backstage Ready: −2 penalty per in-progress stage with a ready utility neighbor
+    # Centrepiece: +8 per ready decor adjacent to 2+ ready non-decor buildings (score bonus)
+    adj = compute_adjacency_bonuses(state["buildings"], CATALOG_BY_ID)
+    backstage_reduction = min(20, adj["backstage"] * 2)  # cap at max possible penalty
+    adj_score_bonus = adj["hotspot"] * 5 + adj["centrepiece"] * 8
+    adjacency_bonus = adj_score_bonus + backstage_reduction
+    composite = max(0, composite + adjacency_bonus)
 
     grade = grade_from_score(composite)
 
@@ -1346,10 +1357,13 @@ async def simulate(player_id: str, req: SimulateRequest):
         "spec_sig_bonus": spec_sig_bonus,
         "spec_sig_label": spec_sig_label,
         "adjacency_breakdown": {
-            "total": adj["total"],
-            "hotspot": adj["hotspot"],
-            "backstage": adj["backstage"],
-            "centrepiece": adj["centrepiece"],
+            "total":              adjacency_bonus,
+            "hotspot":            adj["hotspot"],
+            "hotspot_bonus":      adj["hotspot"] * 5,
+            "backstage":          adj["backstage"],
+            "backstage_reduction": backstage_reduction,
+            "centrepiece":        adj["centrepiece"],
+            "centrepiece_bonus":  adj["centrepiece"] * 8,
         },
         "lineup_boost": lineup_boost,
         "rewards": {"coins": coin_reward, "xp": xp_reward},

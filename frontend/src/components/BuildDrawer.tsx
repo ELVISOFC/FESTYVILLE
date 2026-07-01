@@ -20,6 +20,7 @@ type Props = {
   onSpeedup: (buildingId: string) => void;
   onDemolish: (buildingId: string) => void;
   onClose: () => void;
+  onCategoryChange?: (cat: CatalogItem["category"]) => void;
 };
 
 const CATEGORIES: { id: CatalogItem["category"]; label: string; icon: any }[] = [
@@ -36,7 +37,7 @@ const SPEC_COLOR: Record<string, string> = {
   curator:  "#FFD700",
 };
 
-export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpeedup, onDemolish, onClose }: Props) {
+export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpeedup, onDemolish, onClose, onCategoryChange }: Props) {
   const [tab, setTab] = useState<CatalogItem["category"]>("stage");
 
   const building: Building | undefined = useMemo(() => {
@@ -132,7 +133,7 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
             {CATEGORIES.map((c) => (
               <TouchableOpacity
                 key={c.id}
-                onPress={() => setTab(c.id)}
+                onPress={() => { setTab(c.id); onCategoryChange?.(c.id); }}
                 style={[styles.tab, tab === c.id && { backgroundColor: COLORS.surfaceElev, borderColor: CATEGORY_COLORS[c.id].highlight }]}
                 testID={`build-tab-${c.id}`}
               >

@@ -56,6 +56,7 @@ export default function Index() {
   const [achievementStack, setAchievementStack] = useState<Achievement[] | null>(null);
   const [floatingRewards, setFloatingRewards] = useState<FloatingRewardEntry[]>([]);
   const [tick, setTick] = useState(0);
+  const [pendingCategory, setPendingCategory] = useState<string>("stage");
   const lastPolledRef = useRef(0);
 
   const gridSize = state?.grid_size ?? 8;
@@ -183,6 +184,52 @@ export default function Index() {
     () => (state?.buildings ?? []).filter((b) => b.status === "ready").length,
     [state?.buildings, tick]
   );
+
+  const ghostHighlights = useMemo(() => {
+    if (!drawerOpen || drawerMode !== "build" || !state) return undefined;
+    const buildings = state.buildings;
+    const catById = new Map(catalog.map((c) => [c.id, c]));
+    const occupiedSet = new Set(buildings.map((b) => `${b.x},${b.y}`));
+    const posToBuilding = new Map(buildings.map((b) => [`${b.x},${b.y}`, b]));
+    const highlights = new Map<string, string>();
+
+    const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+    const neighbors = (x: number, y: number) =>
+      DIRS.map(([dx, dy]) => ({ x: x + dx, y: y + dy }));
+
+    const getBuildingAt = (x: number, y: number) => posToBuilding.get(`${x},${y}`);
+    const getCat = (b: { catalog_id: string }) => catById.get(b.catalog_id)?.category;
+
+    const readyStages = buildings.filter((b) => b.status === "ready" && getCat(b) === "stage");
+
+    if (pendingCategory === "vendor" || pendingCategory === "utility") {
+      const color = pendingCategory === "vendor" ? "#FF9900" : "#00FFFF";
+      for (const stage of readyStages) {
+        for (const nb of neighbors(stage.x, stage.y)) {
+          const key = `${nb.x},${nb.y}`;
+          if (!occupiedSet.has(key) && nb.x >= 0 && nb.x < gridSize && nb.y >= 0 && nb.y < gridSize) {
+            highlights.set(key, color);
+          }
+        }
+      }
+    } else if (pendingCategory === "decor") {
+      for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+          if (occupiedSet.has(`${x},${y}`)) continue;
+          const nonDecorNeighborCount = neighbors(x, y).filter((nb) => {
+            const b = getBuildingAt(nb.x, nb.y);
+            if (!b || b.status !== "ready") return false;
+            return getCat(b) !== "decor";
+          }).length;
+          if (nonDecorNeighborCount >= 2) {
+            highlights.set(`${x},${y}`, "#00FF66");
+          }
+        }
+      }
+    }
+
+    return highlights.size > 0 ? highlights : undefined;
+  }, [drawerOpen, drawerMode, pendingCategory, state?.buildings, catalog, gridSize]);
 
   const specBonusActive = useMemo(() => {
     if (!state?.specialization) return false;
@@ -435,6 +482,7 @@ export default function Index() {
                     buildings={sortedBuildings}
                     catalog={catalog}
                     serverNow={state.server_time}
+                    ghostHighlights={ghostHighlights}
                   />
                 </View>
               </Animated.View>
@@ -464,6 +512,7 @@ export default function Index() {
                   buildings={sortedBuildings}
                   catalog={catalog}
                   serverNow={state.server_time}
+                  ghostHighlights={ghostHighlights}
                 />
               </View>
             </View>
@@ -492,7 +541,8 @@ export default function Index() {
           onPlace={doPlace}
           onSpeedup={doSpeedup}
           onDemolish={doDemolish}
-          onClose={() => setDrawerOpen(false)}
+          onClose={() => { setDrawerOpen(false); setPendingCategory("stage"); }}
+          onCategoryChange={(cat) => setPendingCategory(cat)}
         />
       )}
 

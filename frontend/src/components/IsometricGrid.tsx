@@ -27,9 +27,10 @@ type Props = {
   buildings: Building[];
   catalog: CatalogItem[];
   serverNow?: number;
+  ghostHighlights?: Map<string, string>;
 };
 
-export default function IsometricGrid({ gridSize, selected, onTilePress, buildings, catalog, serverNow }: Props) {
+export default function IsometricGrid({ gridSize, selected, onTilePress, buildings, catalog, serverNow, ghostHighlights }: Props) {
   const width = VISUAL_MAX * TILE_W;
   const height = (VISUAL_MAX + 1) * TILE_H;
 
@@ -89,6 +90,8 @@ export default function IsometricGrid({ gridSize, selected, onTilePress, buildin
         newlyUnlockedMin !== null &&
         (x >= newlyUnlockedMin || y >= newlyUnlockedMin);
 
+      const ghostColor = ghostHighlights?.get(`${x},${y}`);
+
       if (isNewlyUnlocked) {
         tiles.push(
           <AnimatedPolygon
@@ -114,13 +117,17 @@ export default function IsometricGrid({ gridSize, selected, onTilePress, buildin
             key={`t-${x}-${y}`}
             points={pts}
             fill={baseFill}
-            stroke={stroke}
-            strokeWidth={isSel ? 2 : 1}
+            stroke={isSel ? COLORS.accent : ghostColor ?? COLORS.grassBorder}
+            strokeWidth={isSel ? 2 : ghostColor ? 1.5 : 1}
           />
         );
         if (isSel) {
           overlays.push(
             <Polygon key={`sel-${x}-${y}`} points={pts} fill="rgba(255,215,0,0.18)" />
+          );
+        } else if (ghostColor) {
+          overlays.push(
+            <Polygon key={`ghost-${x}-${y}`} points={pts} fill={ghostColor + "28"} />
           );
         }
       }

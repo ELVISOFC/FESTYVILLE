@@ -13,6 +13,7 @@ type Props = {
   cycle: number;
   genre: string | null;
   specialization: string | null;
+  specBonusActive: boolean;
   buildCap: number;
   artistCap: number;
   buildSlotsUsed: number;
@@ -35,7 +36,7 @@ const GENRE_TINT: Record<string, string> = {
 };
 
 export default function HUD(props: Props) {
-  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, specialization, buildCap, artistCap, buildSlotsUsed, artistSlotsUsed, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
+  const { coins, xp, level, phase, activeBuilds, day, cycle, genre, specialization, specBonusActive, buildCap, artistCap, buildSlotsUsed, artistSlotsUsed, onOpenLeaderboard, onOpenPlanning, onOpenMenu, onOpenLegacy } = props;
   const spec = specialization ? SPEC_META[specialization] : null;
   
   const buildSlotColor = buildCap === 0 ? COLORS.textSecondary : buildSlotsUsed >= buildCap ? COLORS.danger : buildSlotsUsed >= buildCap * 0.8 ? COLORS.warning : COLORS.textSecondary;
@@ -108,11 +109,21 @@ export default function HUD(props: Props) {
         
         {spec && (
           <>
-            <View style={styles.infoChip} testID="hud-spec-pill">
+            <View
+              style={[
+                styles.infoChip,
+                { borderColor: specBonusActive ? spec.color + "88" : "rgba(255,255,255,0.12)" },
+                specBonusActive && { backgroundColor: spec.color + "20" },
+              ]}
+              testID="hud-spec-pill"
+            >
               <Text style={{ fontSize: 12, marginRight: 2 }}>{spec.emoji}</Text>
               <Text style={[styles.chipText, { color: spec.color, fontSize: 11 }]}>
                 {spec.short}
               </Text>
+              {specBonusActive && (
+                <View style={[styles.bonusDot, { backgroundColor: spec.color }]} />
+              )}
             </View>
             <View style={styles.chipDivider} />
           </>
@@ -213,5 +224,11 @@ const styles = StyleSheet.create({
     width: 1,
     height: 14,
     backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  bonusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginLeft: 3,
   },
 });

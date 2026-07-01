@@ -29,6 +29,13 @@ const CATEGORIES: { id: CatalogItem["category"]; label: string; icon: any }[] = 
   { id: "decor",   label: "Decor",   icon: "sparkles" },
 ];
 
+const SPEC_COLOR: Record<string, string> = {
+  producer: "#FF0055",
+  promoter: "#FF9900",
+  operator: "#00FFFF",
+  curator:  "#FFD700",
+};
+
 export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpeedup, onDemolish, onClose }: Props) {
   const [tab, setTab] = useState<CatalogItem["category"]>("stage");
 
@@ -139,9 +146,11 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
           <ScrollView contentContainerStyle={styles.cardsWrap} showsVerticalScrollIndicator={false}>
             {items.map((item) => {
               const locked = item.phase > state.phase;
+              const specLocked = !!item.spec_lock && state.specialization !== item.spec_lock;
               const tooPoor = state.coins < item.cost;
               const atCap = state.build_slots_used >= state.build_cap;
-              const disabled = locked || tooPoor || atCap;
+              const disabled = locked || specLocked || tooPoor || atCap;
+              const specColor = item.spec_lock ? (SPEC_COLOR[item.spec_lock] ?? COLORS.accent) : undefined;
               return (
                 <TouchableOpacity
                   key={item.id}
@@ -149,7 +158,8 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
                   onPress={() => onPlace(item.id)}
                   style={[
                     styles.card,
-                    { borderColor: CATEGORY_COLORS[item.category].highlight + "55" },
+                    specColor && { borderColor: specColor + "66" },
+                    !specColor && { borderColor: CATEGORY_COLORS[item.category].highlight + "55" },
                     disabled && { opacity: 0.45 },
                   ]}
                   testID={`build-drawer-card-${item.id}`}
@@ -161,22 +171,33 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
                   <View style={styles.cardStatsRow}>
                     <View style={styles.stat}>
                       <Ionicons name="cash" size={11} color={COLORS.accent} />
-                      <Text style={[styles.statText, tooPoor && !locked && { color: COLORS.error }]}>{item.cost}</Text>
+                      <Text style={[styles.statText, tooPoor && !locked && !specLocked && { color: COLORS.error }]}>{item.cost}</Text>
                     </View>
                     <View style={styles.stat}>
                       <Ionicons name="time" size={11} color={COLORS.secondary} />
                       <Text style={styles.statText}>{formatTime(item.build_time)}</Text>
                     </View>
                   </View>
-                  {locked && (
+                  {specLocked && specColor && (
+                    <View style={[styles.lockBadge, { backgroundColor: specColor + "33", borderWidth: 1, borderColor: specColor + "88" }]}>
+                      <Ionicons name="lock-closed" size={10} color={specColor} />
+                      <Text style={[styles.lockTxt, { color: specColor }]}>{(item.spec_lock ?? "").toUpperCase()}</Text>
+                    </View>
+                  )}
+                  {!specLocked && locked && (
                     <View style={styles.lockBadge}>
                       <Ionicons name="lock-closed" size={10} color={COLORS.warning} />
                       <Text style={styles.lockTxt}>P{item.phase}</Text>
                     </View>
                   )}
-                  {atCap && !locked && (
+                  {!specLocked && !locked && atCap && (
                     <View style={[styles.lockBadge, { backgroundColor: "rgba(255,0,85,0.7)" }]}>
                       <Text style={styles.lockTxt}>FULL</Text>
+                    </View>
+                  )}
+                  {item.spec_lock && !specLocked && (
+                    <View style={[styles.pathBadge, { backgroundColor: specColor + "33" }]}>
+                      <Text style={[styles.pathBadgeTxt, { color: specColor }]}>★ PATH</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -269,6 +290,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
   },
   lockTxt: { color: COLORS.warning, fontSize: 9, fontWeight: "800" },
+  pathBadge: {
+    position: "absolute", bottom: 8, right: 8,
+    borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2,
+  },
+  pathBadgeTxt: { fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
   viewBody: { alignItems: "center", gap: 12, paddingBottom: 20 },
   viewIconBox: {
     width: 64, height: 64, borderRadius: 16,

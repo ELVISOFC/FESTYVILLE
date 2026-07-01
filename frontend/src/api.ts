@@ -313,6 +313,7 @@ export type CatalogItem = {
   score: number;
   footprint: number;
   color: string;
+  spec_lock?: string;
 };
 
 export type Building = {

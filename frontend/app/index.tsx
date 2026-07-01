@@ -34,7 +34,7 @@ import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
 import IsometricGrid, { TILE_W, TILE_H, VISUAL_MAX } from "../src/components/IsometricGrid";
 import AchievementToast from "../src/components/AchievementToast";
-import TutorialModal from "../src/components/TutorialModal";
+import SpecPickerModal from "../src/components/SpecPickerModal";
 import FloatingReward, { type FloatingRewardEntry } from "../src/components/FloatingReward";
 
 const ZOOM_MIN = 0.5;
@@ -183,6 +183,21 @@ export default function Index() {
     () => (state?.buildings ?? []).filter((b) => b.status === "ready").length,
     [state?.buildings, tick]
   );
+
+  const specBonusActive = useMemo(() => {
+    if (!state?.specialization) return false;
+    const countCat = (cat: string) =>
+      (state.buildings ?? []).filter(
+        (b) => catalog.find((c) => c.id === b.catalog_id)?.category === cat
+      ).length;
+    switch (state.specialization) {
+      case "producer": return countCat("stage") >= 2;
+      case "promoter": return countCat("vendor") >= 3;
+      case "operator": return countCat("utility") >= 2;
+      case "curator":  return countCat("decor") >= 3;
+      default:         return false;
+    }
+  }, [state?.specialization, state?.buildings, catalog]);
 
   const handleTilePress = (x: number, y: number) => {
     const occ = occupied.has(`${x},${y}`);
@@ -355,6 +370,7 @@ export default function Index() {
           cycle={state.cycle}
           genre={state.genre}
           specialization={state.specialization ?? null}
+          specBonusActive={specBonusActive}
           buildCap={state.build_cap}
           artistCap={state.artist_cap}
           buildSlotsUsed={state.build_slots_used}
@@ -494,9 +510,9 @@ export default function Index() {
       />
 
       {showSpecPicker && (
-        <TutorialModal
-          onClose={() => setShowSpecPicker(false)}
+        <SpecPickerModal
           onPickSpec={handlePickSpec}
+          onClose={() => setShowSpecPicker(false)}
         />
       )}
     </View>

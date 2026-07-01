@@ -114,6 +114,11 @@ CATALOG: List[Dict[str, Any]] = [
     {"id": "fire_pit",     "name": "Fire Pit",        "category": "decor",   "tier": 2, "cost": 180, "build_time": 240,  "phase": 2, "score": 5,  "footprint": 1, "color": "#FF9900"},
     {"id": "lazer_tower",  "name": "Laser Tower",     "category": "decor",   "tier": 3, "cost": 700, "build_time": 600,  "phase": 4, "score": 12, "footprint": 1, "color": "#00FFFF"},
     {"id": "art_statue",   "name": "Art Statue",      "category": "decor",   "tier": 4, "cost": 1500,"build_time": 900,  "phase": 5, "score": 20, "footprint": 1, "color": "#FFD700"},
+    # ── Specialization-exclusive buildings (spec_lock = required path) ──
+    {"id": "backstage_hub",     "name": "Backstage Hub",     "category": "stage",   "tier": 3, "cost": 1800, "build_time": 900,  "phase": 1, "score": 55, "footprint": 1, "color": "#FF0055", "spec_lock": "producer"},
+    {"id": "promo_truck",       "name": "Promo Truck",       "category": "vendor",  "tier": 2, "cost": 350,  "build_time": 300,  "phase": 1, "score": 12, "footprint": 1, "color": "#FF9900", "spec_lock": "promoter"},
+    {"id": "solar_grid",        "name": "Solar Grid",        "category": "utility", "tier": 3, "cost": 700,  "build_time": 480,  "phase": 1, "score": 14, "footprint": 1, "color": "#00FFFF", "spec_lock": "operator"},
+    {"id": "sculpture_garden",  "name": "Sculpture Garden",  "category": "decor",   "tier": 4, "cost": 1200, "build_time": 720,  "phase": 1, "score": 22, "footprint": 1, "color": "#FFD700", "spec_lock": "curator"},
 ]
 CATALOG_BY_ID = {item["id"]: item for item in CATALOG}
 
@@ -898,6 +903,9 @@ async def place_building(player_id: str, req: PlaceRequest):
         raise HTTPException(404, "Unknown building")
     if item["phase"] > state["phase"]:
         raise HTTPException(400, f"Locked. Reach phase {item['phase']} to unlock.")
+    spec_lock = item.get("spec_lock")
+    if spec_lock and state.get("specialization") != spec_lock:
+        raise HTTPException(400, f"Requires the {spec_lock.capitalize()} path specialization")
     player_grid_size = get_grid_size_for_phase(state["phase"])
     if not (0 <= req.x < player_grid_size and 0 <= req.y < player_grid_size):
         raise HTTPException(400, "Tile out of bounds")
@@ -1099,27 +1107,47 @@ async def simulate(player_id: str, req: SimulateRequest):
     if abs(client_composite - composite) >= 10:
         raise HTTPException(400, "Score mismatch: client value rejected")
 
-    # ── Specialization passive bonus (server-only, applied after cheat check) ──
-    # Applied to raw dimensions then composite is recomputed so the leaderboard
-    # and grade reflect the bonus. The bonus is intentionally small so the base
-    # loop still matters; client scoring ignores it (only used for cheat check).
+    # ── Specialization path modifiers (server-only, applied after cheat check) ──
+    # Each path reshapes the scoring weights for that run and grants a flat
+    # +10 "signature bonus" when the player's layout hits the path condition.
+    # Applied after the cheat-check so client scoring (used for validation only)
+    # stays simple; the server composite is authoritative for grade + leaderboard.
     spec = state.get("specialization")
+    spec_sig_bonus = 0
+    spec_sig_label = None
+
     if spec == "producer":
-        stage_score = min(100, stage_score + 8)
+        stage_score      = min(100, stage_score * 1.25)
+        vendor_coverage  = min(100, vendor_coverage * 0.9)
+        if len(stages) >= 2:
+            spec_sig_bonus = 10
+            spec_sig_label = "Stage Powerhouse"
     elif spec == "promoter":
-        vendor_coverage = min(100, vendor_coverage + 8)
+        vendor_coverage = min(100, vendor_coverage * 1.25)
+        crowd_flow      = min(100, crowd_flow + 10)
+        if len(vendors) >= 3:
+            spec_sig_bonus = 10
+            spec_sig_label = "Vendor Network"
     elif spec == "operator":
-        penalty = max(0, penalty // 2)   # halves unfinished-build penalty
+        utility_coverage = min(100, utility_coverage * 2.0)
+        penalty          = max(0, penalty // 2)
+        if len(utilities) >= 2:
+            spec_sig_bonus = 10
+            spec_sig_label = "Infrastructure Ready"
     elif spec == "curator":
-        aesthetic = min(100, aesthetic + 8)
+        aesthetic = min(100, aesthetic * 2.0)
+        if len(decors) >= 3:
+            spec_sig_bonus = 10
+            spec_sig_label = "Artistic Showpiece"
+
     if spec in ("producer", "promoter", "operator", "curator"):
         composite = max(0, int(
-            stage_score   * weights["stage"]
-            + crowd_flow  * weights["crowd_flow"]
+            stage_score      * weights["stage"]
+            + crowd_flow     * weights["crowd_flow"]
             + vendor_coverage * weights["vendor"]
             + utility_coverage * weights["utility"]
-            + aesthetic   * weights["aesthetic"]
-            - penalty + genre_bonus + chemistry_bonus
+            + aesthetic      * weights["aesthetic"]
+            - penalty + genre_bonus + chemistry_bonus + spec_sig_bonus
         ))
 
     grade = grade_from_score(composite)
@@ -1268,6 +1296,8 @@ async def simulate(player_id: str, req: SimulateRequest):
         "genre_bonus": genre_bonus,
         "genre_layout_bonus": genre_layout_bonus,
         "genre_layout_missed": genre_layout_missed,
+        "spec_sig_bonus": spec_sig_bonus,
+        "spec_sig_label": spec_sig_label,
         "lineup_boost": lineup_boost,
         "rewards": {"coins": coin_reward, "xp": xp_reward},
         "challenge": {

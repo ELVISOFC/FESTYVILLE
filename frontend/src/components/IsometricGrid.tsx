@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useRef, useEffect, useState } from "react";
 import Svg, { Polygon, G } from "react-native-svg";
-import { View, StyleSheet, Pressable } from "react-native";
+import { View, StyleSheet, Pressable, Animated } from "react-native";
 import { COLORS } from "../theme";
 import type { Building, CatalogItem } from "../api";
 import BuildingSprite from "./BuildingSprite";
@@ -8,14 +8,17 @@ import ConstructionTimer from "./ConstructionTimer";
 
 export const TILE_W = 56;
 export const TILE_H = 28;
+export const VISUAL_MAX = 11;
 
 export function gridToScreen(x: number, y: number, gridSize: number) {
-  const originX = (gridSize - 1) * (TILE_W / 2);
+  const originX = (VISUAL_MAX - 1) * (TILE_W / 2);
   return {
     sx: originX + (x - y) * (TILE_W / 2),
     sy: (x + y) * (TILE_H / 2),
   };
 }
+
+const AnimatedPolygon = Animated.createAnimatedComponent(Polygon);
 
 type Props = {
   gridSize: number;
@@ -24,41 +27,109 @@ type Props = {
   buildings: Building[];
   catalog: CatalogItem[];
   serverNow?: number;
+  ghostHighlights?: Map<string, string>;
 };
 
-export default function IsometricGrid({ gridSize, selected, onTilePress, buildings, catalog, serverNow }: Props) {
-  const width = gridSize * TILE_W;
-  const height = (gridSize + 1) * TILE_H;
+export default function IsometricGrid({ gridSize, selected, onTilePress, buildings, catalog, serverNow, ghostHighlights }: Props) {
+  const width = VISUAL_MAX * TILE_W;
+  const height = (VISUAL_MAX + 1) * TILE_H;
 
   const catalogById = new Map(catalog.map((c) => [c.id, c]));
   const buildingByTile = new Map(buildings.map((b) => [`${b.x},${b.y}`, b]));
 
+  const prevGridSizeRef = useRef(gridSize);
+  const [newlyUnlockedMin, setNewlyUnlockedMin] = useState<number | null>(null);
+  const unlockAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const prev = prevGridSizeRef.current;
+    if (gridSize > prev) {
+      setNewlyUnlockedMin(prev);
+      unlockAnim.setValue(0.75);
+      Animated.sequence([
+        Animated.timing(unlockAnim, { toValue: 1, duration: 180, useNativeDriver: false }),
+        Animated.timing(unlockAnim, { toValue: 0.5, duration: 200, useNativeDriver: false }),
+        Animated.timing(unlockAnim, { toValue: 0.9, duration: 180, useNativeDriver: false }),
+        Animated.timing(unlockAnim, { toValue: 0, duration: 700, useNativeDriver: false }),
+      ]).start(() => setNewlyUnlockedMin(null));
+    }
+    prevGridSizeRef.current = gridSize;
+  }, [gridSize]);
+
   const tiles: React.ReactNode[] = [];
   const overlays: React.ReactNode[] = [];
 
-  for (let y = 0; y < gridSize; y++) {
-    for (let x = 0; x < gridSize; x++) {
+  for (let y = 0; y < VISUAL_MAX; y++) {
+    for (let x = 0; x < VISUAL_MAX; x++) {
       const { sx, sy } = gridToScreen(x, y, gridSize);
       const cx = sx + TILE_W / 2;
       const cy = sy + TILE_H / 2;
       const pts = `${cx},${sy} ${sx + TILE_W},${cy} ${cx},${sy + TILE_H} ${sx},${cy}`;
+
+      const isLocked = x >= gridSize || y >= gridSize;
+
+      if (isLocked) {
+        tiles.push(
+          <Polygon
+            key={`t-${x}-${y}`}
+            points={pts}
+            fill="#111820"
+            stroke="#1a2030"
+            strokeWidth={1}
+            opacity={0.7}
+          />
+        );
+        continue;
+      }
+
       const isSel = selected && selected.x === x && selected.y === y;
-      const isOcc = buildingByTile.has(`${x},${y}`);
       const baseFill = (x + y) % 2 === 0 ? COLORS.grassBase : "#0E3826";
       const stroke = isSel ? COLORS.accent : COLORS.grassBorder;
-      tiles.push(
-        <Polygon
-          key={`t-${x}-${y}`}
-          points={pts}
-          fill={baseFill}
-          stroke={stroke}
-          strokeWidth={isSel ? 2 : 1}
-        />
-      );
-      if (isSel && !isOcc) {
-        overlays.push(
-          <Polygon key={`sel-${x}-${y}`} points={pts} fill="rgba(255,215,0,0.18)" />
+
+      const isNewlyUnlocked =
+        newlyUnlockedMin !== null &&
+        (x >= newlyUnlockedMin || y >= newlyUnlockedMin);
+
+      const ghostColor = ghostHighlights?.get(`${x},${y}`);
+
+      if (isNewlyUnlocked) {
+        tiles.push(
+          <AnimatedPolygon
+            key={`t-${x}-${y}`}
+            points={pts}
+            fill={baseFill}
+            stroke={COLORS.accent}
+            strokeWidth={2}
+            opacity={unlockAnim}
+          />
         );
+        overlays.push(
+          <AnimatedPolygon
+            key={`unlock-${x}-${y}`}
+            points={pts}
+            fill="rgba(255,215,0,0.35)"
+            opacity={unlockAnim}
+          />
+        );
+      } else {
+        tiles.push(
+          <Polygon
+            key={`t-${x}-${y}`}
+            points={pts}
+            fill={baseFill}
+            stroke={isSel ? COLORS.accent : ghostColor ?? COLORS.grassBorder}
+            strokeWidth={isSel ? 2 : ghostColor ? 1.5 : 1}
+          />
+        );
+        if (isSel) {
+          overlays.push(
+            <Polygon key={`sel-${x}-${y}`} points={pts} fill="rgba(255,215,0,0.18)" />
+          );
+        } else if (ghostColor) {
+          overlays.push(
+            <Polygon key={`ghost-${x}-${y}`} points={pts} fill={ghostColor + "28"} />
+          );
+        }
       }
     }
   }
@@ -88,6 +159,7 @@ export default function IsometricGrid({ gridSize, selected, onTilePress, buildin
     .slice()
     .sort((a, b) => (a.x + a.y) - (b.x + b.y))
     .map((b) => {
+      if (b.x >= gridSize || b.y >= gridSize) return null;
       const item = catalogById.get(b.catalog_id);
       if (!item) return null;
       const { sx, sy } = gridToScreen(b.x, b.y, gridSize);

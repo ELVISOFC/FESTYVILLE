@@ -14,6 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
   api,
+  loadCachedArtists,
+  loadCachedState,
+  loadCachedCatalog,
   type Artist,
   type Genre,
   type PlayerState,
@@ -40,7 +43,16 @@ const GENRE_COLORS: Record<string, string> = {
   indie:  "#00FF66",
   hiphop: "#FF9900",
   rock:   "#FF0055",
+  pop:    "#FF66CC",
   mixed:  "#FFD700",
+};
+
+const GENRE_PERK_INFO: Record<string, { label: string; layoutBonus: string }> = {
+  edm:    { label: "EDM",    layoutBonus: "Layout bonus: +20% stage score when you have exactly 1 stage with high output" },
+  indie:  { label: "Indie",  layoutBonus: "Layout bonus: +15% crowd flow when crowd flow exceeds 70" },
+  hiphop: { label: "Hip-Hop",layoutBonus: "Layout bonus: +15% vendor coverage with 3+ distinct vendor types" },
+  rock:   { label: "Rock",   layoutBonus: "Layout bonus: +3 stage score per extra stage beyond the first" },
+  pop:    { label: "Pop",    layoutBonus: "Layout bonus: +10% all dimensions when aesthetic score exceeds 12" },
 };
 
 const DIM_COLORS = {
@@ -228,9 +240,9 @@ export default function Planning() {
     //    clobber a faster server response that already landed.
     (async () => {
       const [cachedArtists, cachedState, cachedCatalog] = await Promise.all([
-        api.loadCachedArtists(),
-        api.loadCachedState(),
-        api.loadCachedCatalog(),
+        loadCachedArtists(),
+        loadCachedState(),
+        loadCachedCatalog(),
       ]);
       if (cancelled) return;
       if (cachedArtists) {
@@ -513,6 +525,37 @@ export default function Planning() {
             );
           })}
         </View>
+
+        {/* Genre Perks summary */}
+        {state.genre && state.genre !== "mixed" && (() => {
+          const gid = state.genre;
+          const c = GENRE_COLORS[gid] || COLORS.accent;
+          const perk = GENRE_PERK_INFO[gid];
+          const exclusiveBuildings = catalog.filter((item) => item.genre_lock === gid);
+          if (!perk) return null;
+          return (
+            <View style={[styles.perksCard, { borderColor: c + "55" }]} testID="genre-perks-panel">
+              <View style={styles.perksHeader}>
+                <View style={[styles.perksDot, { backgroundColor: c }]} />
+                <Text style={[styles.perksTitle, { color: c }]}>{perk.label.toUpperCase()} PERKS</Text>
+              </View>
+              <View style={styles.perksLayoutRow}>
+                <Ionicons name="map" size={13} color={COLORS.textSecondary} />
+                <Text style={styles.perksLayoutText}>{perk.layoutBonus}</Text>
+              </View>
+              {exclusiveBuildings.length > 0 && (
+                <View style={styles.perksBuildingsRow}>
+                  {exclusiveBuildings.map((b) => (
+                    <View key={b.id} style={[styles.perksBuildingChip, { borderColor: c + "66" }]}>
+                      <Text style={[styles.perksBuildingName, { color: c }]}>{b.name}</Text>
+                      <Text style={styles.perksBuildingMeta}>{b.category} · {b.cost}c</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Lineup */}
         <Text style={[styles.sectionLabel, { marginTop: 18 }]}>2. BOOK THE LINEUP</Text>
@@ -858,6 +901,31 @@ const styles = StyleSheet.create({
   },
   genreDot: { width: 8, height: 8, borderRadius: 4 },
   genreLabel: { color: COLORS.textSecondary, fontWeight: "700", fontSize: 12 },
+  perksCard: {
+    backgroundColor: "#0e1120",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+    marginBottom: 4,
+    borderWidth: 1,
+    gap: 8,
+  },
+  perksHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  perksDot: { width: 8, height: 8, borderRadius: 4 },
+  perksTitle: { fontWeight: "900", fontSize: 10, letterSpacing: 2 },
+  perksLayoutRow: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  perksLayoutText: { color: COLORS.textSecondary, fontSize: 11, fontWeight: "600", flex: 1 },
+  perksBuildingsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  perksBuildingChip: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    gap: 2,
+  },
+  perksBuildingName: { fontWeight: "800", fontSize: 11 },
+  perksBuildingMeta: { color: COLORS.textSecondary, fontSize: 9, fontWeight: "700" },
   hint: { color: COLORS.textSecondary, fontSize: 12, fontStyle: "italic" },
   chemCard: {
     backgroundColor: COLORS.surface,

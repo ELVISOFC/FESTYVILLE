@@ -9,6 +9,12 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
+import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -26,10 +32,13 @@ import { Analytics } from "../src/analytics";
 import { computeScore } from "../src/lib/scoring";
 import HUD from "../src/components/HUD";
 import BuildDrawer from "../src/components/BuildDrawer";
-import IsometricGrid, { TILE_W, TILE_H } from "../src/components/IsometricGrid";
+import IsometricGrid, { TILE_W, TILE_H, VISUAL_MAX } from "../src/components/IsometricGrid";
 import AchievementToast from "../src/components/AchievementToast";
-import TutorialModal from "../src/components/TutorialModal";
+import SpecPickerModal from "../src/components/SpecPickerModal";
 import FloatingReward, { type FloatingRewardEntry } from "../src/components/FloatingReward";
+
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.5;
 
 export default function Index() {
   const insets = useSafeAreaInsets();
@@ -40,7 +49,6 @@ export default function Index() {
   const [offline, setOffline] = useState(false);
   const [showSpecPicker, setShowSpecPicker] = useState(false);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [gridSize, setGridSize] = useState(8);
   const [selectedTile, setSelectedTile] = useState<{ x: number; y: number } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"build" | "view">("build");
@@ -48,7 +56,37 @@ export default function Index() {
   const [achievementStack, setAchievementStack] = useState<Achievement[] | null>(null);
   const [floatingRewards, setFloatingRewards] = useState<FloatingRewardEntry[]>([]);
   const [tick, setTick] = useState(0);
+  const [pendingCategory, setPendingCategory] = useState<string>("stage");
   const lastPolledRef = useRef(0);
+
+  const gridSize = state?.grid_size ?? 8;
+
+  // ── Pinch-to-zoom ──────────────────────────────────────────────────────────
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((e) => {
+      const next = savedScale.value * e.scale;
+      scale.value = Math.min(Math.max(next, ZOOM_MIN), ZOOM_MAX);
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+    });
+
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      scale.value = withSpring(1);
+      savedScale.value = 1;
+    });
+
+  const composed = Gesture.Simultaneous(pinchGesture, doubleTapGesture);
+
+  const animatedGridStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  // ──────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (state && !state.specialization) setShowSpecPicker(true);
@@ -86,7 +124,6 @@ export default function Index() {
       if (cancelled) return;
       if (cachedCat) {
         setCatalog((prev) => (prev.length ? prev : cachedCat.catalog));
-        setGridSize((prev) => prev || cachedCat.grid_size);
       }
       if (cachedState) {
         setState((prev) => {
@@ -102,7 +139,6 @@ export default function Index() {
         const [c, s] = await Promise.all([api.catalog(), api.state()]);
         if (cancelled) return;
         setCatalog(c.catalog);
-        setGridSize(c.grid_size);
         setState(s as PlayerState);
         setOffline(false);
         setLoadError(null);
@@ -148,6 +184,76 @@ export default function Index() {
     () => (state?.buildings ?? []).filter((b) => b.status === "ready").length,
     [state?.buildings, tick]
   );
+
+  const ghostHighlights = useMemo(() => {
+    if (!drawerOpen || drawerMode !== "build" || !state) return undefined;
+    const buildings = state.buildings;
+    const catById = new Map(catalog.map((c) => [c.id, c]));
+    const occupiedSet = new Set(buildings.map((b) => `${b.x},${b.y}`));
+    const posToBuilding = new Map(buildings.map((b) => [`${b.x},${b.y}`, b]));
+    const highlights = new Map<string, string>();
+
+    const DIRS = [[-1,0],[1,0],[0,-1],[0,1]];
+    const neighbors = (x: number, y: number) =>
+      DIRS.map(([dx, dy]) => ({ x: x + dx, y: y + dy }));
+
+    const getBuildingAt = (x: number, y: number) => posToBuilding.get(`${x},${y}`);
+    const getCat = (b: { catalog_id: string }) => catById.get(b.catalog_id)?.category;
+
+    const readyStages = buildings.filter((b) => b.status === "ready" && getCat(b) === "stage");
+    const inProgressStages = buildings.filter((b) => b.status === "building" && getCat(b) === "stage");
+
+    if (pendingCategory === "vendor") {
+      for (const stage of readyStages) {
+        for (const nb of neighbors(stage.x, stage.y)) {
+          const key = `${nb.x},${nb.y}`;
+          if (!occupiedSet.has(key) && nb.x >= 0 && nb.x < gridSize && nb.y >= 0 && nb.y < gridSize) {
+            highlights.set(key, "#FF9900");
+          }
+        }
+      }
+    } else if (pendingCategory === "utility") {
+      for (const stage of inProgressStages) {
+        for (const nb of neighbors(stage.x, stage.y)) {
+          const key = `${nb.x},${nb.y}`;
+          if (!occupiedSet.has(key) && nb.x >= 0 && nb.x < gridSize && nb.y >= 0 && nb.y < gridSize) {
+            highlights.set(key, "#00FFFF");
+          }
+        }
+      }
+    } else if (pendingCategory === "decor") {
+      for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+          if (occupiedSet.has(`${x},${y}`)) continue;
+          const nonDecorNeighborCount = neighbors(x, y).filter((nb) => {
+            const b = getBuildingAt(nb.x, nb.y);
+            if (!b || b.status !== "ready") return false;
+            return getCat(b) !== "decor";
+          }).length;
+          if (nonDecorNeighborCount >= 2) {
+            highlights.set(`${x},${y}`, "#00FF66");
+          }
+        }
+      }
+    }
+
+    return highlights.size > 0 ? highlights : undefined;
+  }, [drawerOpen, drawerMode, pendingCategory, state?.buildings, catalog, gridSize]);
+
+  const specBonusActive = useMemo(() => {
+    if (!state?.specialization) return false;
+    const countCat = (cat: string) =>
+      (state.buildings ?? []).filter(
+        (b) => catalog.find((c) => c.id === b.catalog_id)?.category === cat
+      ).length;
+    switch (state.specialization) {
+      case "producer": return countCat("stage") >= 2;
+      case "promoter": return countCat("vendor") >= 3;
+      case "operator": return countCat("utility") >= 2;
+      case "curator":  return countCat("decor") >= 3;
+      default:         return false;
+    }
+  }, [state?.specialization, state?.buildings, catalog]);
 
   const handleTilePress = (x: number, y: number) => {
     const occ = occupied.has(`${x},${y}`);
@@ -303,12 +409,12 @@ export default function Index() {
     );
   }
 
-  const worldWidth = gridSize * TILE_W;
-  const worldHeight = (gridSize + 1) * TILE_H + 80;
+  const worldWidth = VISUAL_MAX * TILE_W;
+  const worldHeight = (VISUAL_MAX + 1) * TILE_H + 80;
   const sortedBuildings = [...state.buildings].sort((a, b) => a.x + a.y - (b.x + b.y));
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top + 6 }]}>
+    <View style={[styles.root, { paddingTop: insets.top + 20 }]}>
       <View testID="top-hud">
         <HUD
           coins={state.coins}
@@ -320,6 +426,7 @@ export default function Index() {
           cycle={state.cycle}
           genre={state.genre}
           specialization={state.specialization ?? null}
+          specBonusActive={specBonusActive}
           buildCap={state.build_cap}
           artistCap={state.artist_cap}
           buildSlotsUsed={state.build_slots_used}
@@ -354,33 +461,73 @@ export default function Index() {
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ alignItems: "center" }}
-        style={styles.worldScrollX}
-      >
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingVertical: 16 }}
-        >
-          <View
-            style={{ width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 }}
-            testID="isometric-playfield"
+      {/* Pinch-to-zoom only applies on native — GestureDetector on web swallows
+          tile taps (the double-tap recognizer delays single-tap events and they
+          never reach the Pressable touch targets inside IsometricGrid). */}
+      {Platform.OS !== "web" ? (
+        <GestureDetector gesture={composed}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ alignItems: "center" }}
+            style={styles.worldScrollX}
           >
-            <View style={{ width: worldWidth, height: worldHeight }}>
-              <IsometricGrid
-                gridSize={gridSize}
-                selected={selectedTile}
-                onTilePress={handleTilePress}
-                buildings={sortedBuildings}
-                catalog={catalog}
-                serverNow={state.server_time}
-              />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: 16 }}
+            >
+              <Animated.View
+                style={[
+                  { width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 },
+                  animatedGridStyle,
+                ]}
+                testID="isometric-playfield"
+              >
+                <View style={{ width: worldWidth, height: worldHeight }}>
+                  <IsometricGrid
+                    gridSize={gridSize}
+                    selected={selectedTile}
+                    onTilePress={handleTilePress}
+                    buildings={sortedBuildings}
+                    catalog={catalog}
+                    serverNow={state.server_time}
+                    ghostHighlights={ghostHighlights}
+                  />
+                </View>
+              </Animated.View>
+            </ScrollView>
+          </ScrollView>
+        </GestureDetector>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ alignItems: "center" }}
+          style={styles.worldScrollX}
+        >
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingVertical: 16 }}
+          >
+            <View
+              style={{ width: worldWidth + 40, height: worldHeight + 40, alignItems: "center", paddingTop: 20 }}
+              testID="isometric-playfield"
+            >
+              <View style={{ width: worldWidth, height: worldHeight }}>
+                <IsometricGrid
+                  gridSize={gridSize}
+                  selected={selectedTile}
+                  onTilePress={handleTilePress}
+                  buildings={sortedBuildings}
+                  catalog={catalog}
+                  serverNow={state.server_time}
+                  ghostHighlights={ghostHighlights}
+                />
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </ScrollView>
-      </ScrollView>
+      )}
 
       <View style={styles.bottomBar}>
         <TouchableOpacity
@@ -403,7 +550,8 @@ export default function Index() {
           onPlace={doPlace}
           onSpeedup={doSpeedup}
           onDemolish={doDemolish}
-          onClose={() => setDrawerOpen(false)}
+          onClose={() => { setDrawerOpen(false); setPendingCategory("stage"); }}
+          onCategoryChange={(cat) => setPendingCategory(cat)}
         />
       )}
 
@@ -421,9 +569,9 @@ export default function Index() {
       />
 
       {showSpecPicker && (
-        <TutorialModal
-          onClose={() => setShowSpecPicker(false)}
+        <SpecPickerModal
           onPickSpec={handlePickSpec}
+          onClose={() => setShowSpecPicker(false)}
         />
       )}
     </View>

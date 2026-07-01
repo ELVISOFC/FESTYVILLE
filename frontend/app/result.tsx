@@ -15,6 +15,7 @@ import { Svg, Rect, Circle } from "react-native-svg";
 import { COLORS, GRADE_COLORS } from "../src/theme";
 import { Ionicons } from "@expo/vector-icons";
 
+
 // ---------------------------------------------------------------------------
 // Confetti
 // ---------------------------------------------------------------------------
@@ -254,6 +255,14 @@ export default function ResultScreen() {
               </View>
             );
           })}
+
+          {(bd.adjacency_bonus ?? 0) > 0 && (
+            <View style={styles.adjRow} testID="results-adjacency-bonus">
+              <Ionicons name="git-network" size={13} color="#A78BFA" />
+              <Text style={styles.adjLabel}>ADJACENCY BONUSES</Text>
+              <Text style={styles.adjVal}>+{bd.adjacency_bonus}</Text>
+            </View>
+          )}
         </View>
 
         <TouchableOpacity
@@ -341,6 +350,26 @@ const styles = StyleSheet.create({
   barInner: {
     height: 8,
     borderRadius: 4,
+  },
+  adjRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  adjLabel: {
+    flex: 1,
+    color: "#A78BFA",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  adjVal: {
+    color: "#A78BFA",
+    fontSize: 13,
+    fontWeight: "900",
   },
   cta: {
     flexDirection: "row",

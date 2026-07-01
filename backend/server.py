@@ -119,6 +119,22 @@ CATALOG: List[Dict[str, Any]] = [
     {"id": "promo_truck",       "name": "Promo Truck",       "category": "vendor",  "tier": 2, "cost": 350,  "build_time": 300,  "phase": 1, "score": 12, "footprint": 1, "color": "#FF9900", "spec_lock": "promoter"},
     {"id": "solar_grid",        "name": "Solar Grid",        "category": "utility", "tier": 3, "cost": 700,  "build_time": 480,  "phase": 1, "score": 14, "footprint": 1, "color": "#00FFFF", "spec_lock": "operator"},
     {"id": "sculpture_garden",  "name": "Sculpture Garden",  "category": "decor",   "tier": 4, "cost": 1200, "build_time": 720,  "phase": 1, "score": 22, "footprint": 1, "color": "#FFD700", "spec_lock": "curator"},
+    # ── Genre-exclusive buildings (genre_lock = required festival genre) ──
+    # EDM
+    {"id": "bass_rig",          "name": "Bass Rig",          "category": "stage",   "tier": 2, "cost": 700,  "build_time": 480,  "phase": 1, "score": 20, "footprint": 1, "color": "#00FFFF", "genre_lock": "edm"},
+    {"id": "silent_disco",      "name": "Silent Disco Zone", "category": "decor",   "tier": 2, "cost": 250,  "build_time": 300,  "phase": 1, "score": 8,  "footprint": 1, "color": "#00DDFF", "genre_lock": "edm"},
+    # Rock
+    {"id": "amp_wall",          "name": "Amp Wall",          "category": "utility", "tier": 2, "cost": 350,  "build_time": 360,  "phase": 1, "score": 9,  "footprint": 1, "color": "#FF4455", "genre_lock": "rock"},
+    {"id": "mosh_pit",          "name": "Mosh Pit Zone",     "category": "decor",   "tier": 2, "cost": 200,  "build_time": 240,  "phase": 1, "score": 7,  "footprint": 1, "color": "#FF0055", "genre_lock": "rock"},
+    # Indie
+    {"id": "acoustic_den",      "name": "Acoustic Den",      "category": "stage",   "tier": 2, "cost": 650,  "build_time": 420,  "phase": 1, "score": 18, "footprint": 1, "color": "#00FF66", "genre_lock": "indie"},
+    {"id": "craft_bar",         "name": "Craft Bar",         "category": "vendor",  "tier": 2, "cost": 300,  "build_time": 240,  "phase": 1, "score": 9,  "footprint": 1, "color": "#66FF99", "genre_lock": "indie"},
+    # HipHop
+    {"id": "cypher_stage",      "name": "Cypher Stage",      "category": "stage",   "tier": 2, "cost": 750,  "build_time": 480,  "phase": 1, "score": 20, "footprint": 1, "color": "#FF9900", "genre_lock": "hiphop"},
+    {"id": "spray_wall",        "name": "Spray Art Wall",    "category": "decor",   "tier": 2, "cost": 150,  "build_time": 180,  "phase": 1, "score": 6,  "footprint": 1, "color": "#FFB347", "genre_lock": "hiphop"},
+    # Pop
+    {"id": "selfie_zone",       "name": "Selfie Zone",       "category": "decor",   "tier": 2, "cost": 200,  "build_time": 180,  "phase": 1, "score": 7,  "footprint": 1, "color": "#FF66CC", "genre_lock": "pop"},
+    {"id": "merch_collab",      "name": "Merch Collab Booth","category": "vendor",  "tier": 2, "cost": 400,  "build_time": 300,  "phase": 1, "score": 11, "footprint": 1, "color": "#FF99DD", "genre_lock": "pop"},
 ]
 CATALOG_BY_ID = {item["id"]: item for item in CATALOG}
 
@@ -139,6 +155,7 @@ GENRES = [
     {"id": "indie",   "label": "Indie / Folk"},
     {"id": "hiphop",  "label": "Hip-Hop Block"},
     {"id": "rock",    "label": "Rock Revival"},
+    {"id": "pop",     "label": "Pop Spectacular"},
     {"id": "mixed",   "label": "Mixed Genre"},
 ]
 
@@ -281,6 +298,27 @@ MICRO_EVENTS: List[Dict[str, Any]] = [
     {"text": "Scaffold recycled — materials saved",      "coins": 110, "xp": 8,  "character_id": "axle"},
     {"text": "Perfect weather forecast for setup",       "coins": 40,  "xp": 20, "character_id": "axle"},
     {"text": "Gear delivery arrives ahead of schedule",  "coins": 70,  "xp": 14, "character_id": "axle"},
+    # ── Genre-specific events (weighted higher when genre matches) ──
+    # EDM
+    {"text": "Silent Disco Surprise — crowd flow surges!",       "coins": 140, "xp": 15, "character_id": "baz",   "genre": "edm"},
+    {"text": "Laser rig sponsor arrives with a cash deal",        "coins": 200, "xp": 10, "character_id": "vault", "genre": "edm"},
+    {"text": "Drop announced online — ticket sales spike!",       "coins": 180, "xp": 12, "character_id": "sky",   "genre": "edm"},
+    # Rock
+    {"text": "Guitar solo contest draws massive extra crowd",     "coins": 130, "xp": 15, "character_id": "baz",   "genre": "rock"},
+    {"text": "Amp rental discount locked in last minute",         "coins": 110, "xp": 8,  "character_id": "vault", "genre": "rock"},
+    {"text": "Rock press feature runs front page today",          "coins": 160, "xp": 12, "character_id": "sky",   "genre": "rock"},
+    # Indie
+    {"text": "Handmade zines distributed — cult buzz builds",     "coins": 100, "xp": 18, "character_id": "sky",   "genre": "indie"},
+    {"text": "Local coffee brand sponsors the acoustic tent",     "coins": 150, "xp": 10, "character_id": "vault", "genre": "indie"},
+    {"text": "Acoustic set streamed live — donations pour in",    "coins": 130, "xp": 14, "character_id": "baz",   "genre": "indie"},
+    # HipHop
+    {"text": "Freestyle battle goes viral — hype peaks",          "coins": 170, "xp": 18, "character_id": "sky",   "genre": "hiphop"},
+    {"text": "Streetwear collab boosts merch sales overnight",    "coins": 160, "xp": 12, "character_id": "marcy", "genre": "hiphop"},
+    {"text": "Radio DJ spins the lineup early — buzz surges",     "coins": 140, "xp": 15, "character_id": "sky",   "genre": "hiphop"},
+    # Pop
+    {"text": "TikTok dance challenge goes viral this morning",    "coins": 200, "xp": 15, "character_id": "sky",   "genre": "pop"},
+    {"text": "Influencer package sells out in minutes",           "coins": 180, "xp": 10, "character_id": "marcy", "genre": "pop"},
+    {"text": "Fan meet-and-greet upsell smashes the target",      "coins": 150, "xp": 12, "character_id": "vault", "genre": "pop"},
 ]
 
 # ---------- Achievements ----------
@@ -802,7 +840,13 @@ async def advance_day(player_id: str):
     if state["day"] == 1 and not state["genre"]:
         raise HTTPException(400, "Pick a genre before ending Day 1")
 
-    ev = random.choice(MICRO_EVENTS)
+    # Weight genre-matching events 3× higher for thematic flavour
+    active_genre = state.get("genre") or ""
+    if active_genre and active_genre != "mixed":
+        weights = [3 if ev.get("genre") == active_genre else 1 for ev in MICRO_EVENTS]
+        ev = random.choices(MICRO_EVENTS, weights=weights, k=1)[0]
+    else:
+        ev = random.choice(MICRO_EVENTS)
     state["day"] += 1
     state["coins"] += ev["coins"]
     state["xp"] += ev["xp"]
@@ -953,6 +997,9 @@ async def place_building(player_id: str, req: PlaceRequest):
     spec_lock = item.get("spec_lock")
     if spec_lock and state.get("specialization") != spec_lock:
         raise HTTPException(400, f"Requires the {spec_lock.capitalize()} path specialization")
+    genre_lock = item.get("genre_lock")
+    if genre_lock and state.get("genre") != genre_lock:
+        raise HTTPException(400, f"Requires the {genre_lock.upper()} genre for this festival")
     player_grid_size = get_grid_size_for_phase(state["phase"])
     if not (0 <= req.x < player_grid_size and 0 <= req.y < player_grid_size):
         raise HTTPException(400, "Tile out of bounds")

@@ -314,6 +314,7 @@ export type CatalogItem = {
   footprint: number;
   color: string;
   spec_lock?: string;
+  genre_lock?: string;
 };
 
 export type Building = {

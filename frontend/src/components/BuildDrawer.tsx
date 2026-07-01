@@ -37,6 +37,15 @@ const SPEC_COLOR: Record<string, string> = {
   curator:  "#FFD700",
 };
 
+const GENRE_COLOR: Record<string, string> = {
+  edm:    "#00FFFF",
+  indie:  "#00FF66",
+  hiphop: "#FF9900",
+  rock:   "#FF0055",
+  pop:    "#FF66CC",
+  mixed:  "#FFD700",
+};
+
 export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpeedup, onDemolish, onClose, onCategoryChange }: Props) {
   const [tab, setTab] = useState<CatalogItem["category"]>("stage");
 
@@ -148,10 +157,13 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
             {items.map((item) => {
               const locked = item.phase > state.phase;
               const specLocked = !!item.spec_lock && state.specialization !== item.spec_lock;
+              const genreLocked = !!item.genre_lock && state.genre !== item.genre_lock;
               const tooPoor = state.coins < item.cost;
               const atCap = state.build_slots_used >= state.build_cap;
-              const disabled = locked || specLocked || tooPoor || atCap;
+              const disabled = locked || specLocked || genreLocked || tooPoor || atCap;
               const specColor = item.spec_lock ? (SPEC_COLOR[item.spec_lock] ?? COLORS.accent) : undefined;
+              const genreColor = item.genre_lock ? (GENRE_COLOR[item.genre_lock] ?? COLORS.accent) : undefined;
+              const borderColor = specColor ?? genreColor ?? (CATEGORY_COLORS[item.category].highlight + "55");
               return (
                 <TouchableOpacity
                   key={item.id}
@@ -159,8 +171,7 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
                   onPress={() => onPlace(item.id)}
                   style={[
                     styles.card,
-                    specColor && { borderColor: specColor + "66" },
-                    !specColor && { borderColor: CATEGORY_COLORS[item.category].highlight + "55" },
+                    { borderColor: borderColor + (specColor || genreColor ? "66" : "") },
                     disabled && { opacity: 0.45 },
                   ]}
                   testID={`build-drawer-card-${item.id}`}
@@ -172,7 +183,7 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
                   <View style={styles.cardStatsRow}>
                     <View style={styles.stat}>
                       <Ionicons name="cash" size={11} color={COLORS.accent} />
-                      <Text style={[styles.statText, tooPoor && !locked && !specLocked && { color: COLORS.error }]}>{item.cost}</Text>
+                      <Text style={[styles.statText, tooPoor && !locked && !specLocked && !genreLocked && { color: COLORS.error }]}>{item.cost}</Text>
                     </View>
                     <View style={styles.stat}>
                       <Ionicons name="time" size={11} color={COLORS.secondary} />
@@ -185,13 +196,19 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
                       <Text style={[styles.lockTxt, { color: specColor }]}>{(item.spec_lock ?? "").toUpperCase()}</Text>
                     </View>
                   )}
-                  {!specLocked && locked && (
+                  {genreLocked && !specLocked && genreColor && (
+                    <View style={[styles.lockBadge, { backgroundColor: genreColor + "33", borderWidth: 1, borderColor: genreColor + "88" }]}>
+                      <Ionicons name="lock-closed" size={10} color={genreColor} />
+                      <Text style={[styles.lockTxt, { color: genreColor }]}>{(item.genre_lock ?? "").toUpperCase()}</Text>
+                    </View>
+                  )}
+                  {!specLocked && !genreLocked && locked && (
                     <View style={styles.lockBadge}>
                       <Ionicons name="lock-closed" size={10} color={COLORS.warning} />
                       <Text style={styles.lockTxt}>P{item.phase}</Text>
                     </View>
                   )}
-                  {!specLocked && !locked && atCap && (
+                  {!specLocked && !genreLocked && !locked && atCap && (
                     <View style={[styles.lockBadge, { backgroundColor: "rgba(255,0,85,0.7)" }]}>
                       <Text style={styles.lockTxt}>FULL</Text>
                     </View>
@@ -199,6 +216,11 @@ export default function BuildDrawer({ mode, tile, state, catalog, onPlace, onSpe
                   {item.spec_lock && !specLocked && (
                     <View style={[styles.pathBadge, { backgroundColor: specColor + "33" }]}>
                       <Text style={[styles.pathBadgeTxt, { color: specColor }]}>★ PATH</Text>
+                    </View>
+                  )}
+                  {item.genre_lock && !genreLocked && (
+                    <View style={[styles.pathBadge, { backgroundColor: genreColor + "33" }]}>
+                      <Text style={[styles.pathBadgeTxt, { color: genreColor }]}>♪ GENRE</Text>
                     </View>
                   )}
                 </TouchableOpacity>

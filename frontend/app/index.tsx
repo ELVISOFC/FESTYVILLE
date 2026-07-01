@@ -201,14 +201,23 @@ export default function Index() {
     const getCat = (b: { catalog_id: string }) => catById.get(b.catalog_id)?.category;
 
     const readyStages = buildings.filter((b) => b.status === "ready" && getCat(b) === "stage");
+    const inProgressStages = buildings.filter((b) => b.status === "building" && getCat(b) === "stage");
 
-    if (pendingCategory === "vendor" || pendingCategory === "utility") {
-      const color = pendingCategory === "vendor" ? "#FF9900" : "#00FFFF";
+    if (pendingCategory === "vendor") {
       for (const stage of readyStages) {
         for (const nb of neighbors(stage.x, stage.y)) {
           const key = `${nb.x},${nb.y}`;
           if (!occupiedSet.has(key) && nb.x >= 0 && nb.x < gridSize && nb.y >= 0 && nb.y < gridSize) {
-            highlights.set(key, color);
+            highlights.set(key, "#FF9900");
+          }
+        }
+      }
+    } else if (pendingCategory === "utility") {
+      for (const stage of inProgressStages) {
+        for (const nb of neighbors(stage.x, stage.y)) {
+          const key = `${nb.x},${nb.y}`;
+          if (!occupiedSet.has(key) && nb.x >= 0 && nb.x < gridSize && nb.y >= 0 && nb.y < gridSize) {
+            highlights.set(key, "#00FFFF");
           }
         }
       }
